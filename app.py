@@ -213,23 +213,14 @@ class Api:
             self._window.hide()
 
 
-def make_icon_image():
-    from PIL import Image, ImageDraw
-    img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-    d.rounded_rectangle((6, 10, 58, 54), radius=14, fill=(124, 92, 255))
-    d.ellipse((18, 24, 28, 34), fill="white")
-    d.ellipse((36, 24, 46, 34), fill="white")
-    d.rounded_rectangle((22, 41, 42, 45), radius=2, fill="white")
-    d.line((32, 10, 32, 3), fill=(124, 92, 255), width=3)
-    d.ellipse((28, 0, 36, 7), fill=(0, 220, 180))
-    return img
-
-
 def main():
+    import kimlik
+    kimlik.set_app_id()
+    kimlik.ensure_icon()
     cfg = load_config()
     api = Api(cfg)
     state = {"quitting": False}
+    threading.Thread(target=kimlik.create_shortcuts, args=(cfg["isim"],), daemon=True).start()
 
     window = webview.create_window(
         cfg["isim"], str(BASE / "ui" / "index.html"), js_api=api,
@@ -244,6 +235,7 @@ def main():
         return False
 
     window.events.closing += on_closing
+    window.events.shown += kimlik.apply_window_icon
 
     # --- sistem tepsisi ---
     def start_tray():
@@ -257,7 +249,7 @@ def main():
             icon.stop()
             window.destroy()
 
-        icon = pystray.Icon(cfg["isim"], make_icon_image(), cfg["isim"], menu=pystray.Menu(
+        icon = pystray.Icon(cfg["isim"], kimlik.make_icon_image(64), cfg["isim"], menu=pystray.Menu(
             pystray.MenuItem("Aç", toggle, default=True),
             pystray.MenuItem("Çıkış", quit_app),
         ))
