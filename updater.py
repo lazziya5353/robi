@@ -47,10 +47,24 @@ def kontrol(repo: str, dal: str = "main"):
         r = requests.get(f"https://api.github.com/repos/{repo}/commits/{dal}", headers=_headers(), timeout=10)
     except Exception as e:
         return {"durum": "hata", "mesaj": f"GitHub'a ulaşılamadı: {e}"}
-    if r.status_code in (401, 403, 404):
-        if not _token():
-            return {"durum": "token_yok"}
-        return {"durum": "hata", "mesaj": "Güncelleme anahtarı geçersiz ya da süresi dolmuş."}
+    if r.status_code != 200 and not _token():
+        return {"durum": "token_yok"}
+    if r.status_code == 401:
+        return {"durum": "hata", "mesaj": "Anahtar geçersiz ya da süresi dolmuş (401). Yanlış kopyalanmış olabilir, yeni anahtar gir."}
+    if r.status_code == 409:
+        return {"durum": "hata", "mesaj": "Repo boş görünüyor (409). GitHub'da dosyaları yükleyip Commit changes'a bastığından emin ol."}
+    if r.status_code in (403, 404, 422):
+        # Sorun repoda mı, izinde mi, dalda mı?
+        try:
+            rr = requests.get(f"https://api.github.com/repos/{repo}", headers=_headers(), timeout=10)
+        except Exception:
+            rr = None
+        if rr is not None and rr.status_code == 200:
+            default = rr.json().get("default_branch", dal)
+            if default != dal:
+                return kontrol(repo, default)
+            return {"durum": "hata", "mesaj": f"Anahtarın kodu okuma izni yok ({r.status_code}). Token ayarında Permissions → Contents → Read-only ekle."}
+        return {"durum": "hata", "mesaj": f"Anahtar '{repo}' reposunu göremiyor ({r.status_code}). Token ayarında Repository access kısmında robi seçili olmalı."}
     if r.status_code != 200:
         return {"durum": "hata", "mesaj": f"GitHub hatası ({r.status_code})"}
     d = r.json()

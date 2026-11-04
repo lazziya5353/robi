@@ -248,7 +248,7 @@ function showUpdate(s) {
   } else if (s.durum === 'tamam') {
     u.innerHTML = `<span class="ut">✅ Güncellendi, Robi yeniden açılıyor…</span>`;
   } else {
-    u.innerHTML = `<span class="ut">⚠️ ${esc(s.mesaj || 'Güncelleme kontrol edilemedi')}</span>${s.mesaj && s.mesaj.includes('anahtar') ? '<button class="ub" onclick="showUpdate({durum:\'token_yok\'})">Yeni anahtar</button>' : ''}${close}`;
+    u.innerHTML = `<span class="ut">⚠️ ${esc(s.mesaj || 'Güncelleme kontrol edilemedi')}</span>${s.mesaj && /anahtar/i.test(s.mesaj) ? '<button class="ub" onclick="showUpdate({durum:\'token_yok\'})">Yeni anahtar</button>' : ''}${close}`;
   }
   u.className = 'show';
 }
