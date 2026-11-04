@@ -1,0 +1,7 @@
+{
+  "isim": "Robi",
+  "model": "qwen2.5:14b",
+  "ollama_url": "http://localhost:11434",
+  "kisayol": "ctrl+shift+space",
+  "max_adim": 8
+}
