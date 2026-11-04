@@ -79,28 +79,38 @@ def _pythonw():
     return w if w.exists() else exe
 
 
-def _make_lnk(folder_ps: str, name: str, extra_dir: str = ""):
-    target = f"[Environment]::GetFolderPath('{folder_ps}')" + (f" + '\\{extra_dir}'" if extra_dir else "")
+def _make_lnk(folder_ps: str, name: str, only_if_exists: bool = False):
+    target = f"[Environment]::GetFolderPath('{folder_ps}')"
+    check = f"if (-not (Test-Path \"$d\\{name}.lnk\")) {{ exit }}; " if only_if_exists else ""
     ps = (
-        f"$d={target}; "
+        f"$d={target}; {check}"
         f"$s=(New-Object -ComObject WScript.Shell).CreateShortcut(\"$d\\{name}.lnk\"); "
         "$s.TargetPath=$env:ROBI_EXE; $s.Arguments='\"' + $env:ROBI_APP + '\"'; "
         "$s.WorkingDirectory=$env:ROBI_DIR; $s.IconLocation=$env:ROBI_ICO; "
         "$s.Description='Bilgisayar yardımcı robotu'; $s.Save()"
     )
-    env = {**os.environ, "ROBI_EXE": str(_pythonw()), "ROBI_APP": str(BASE / "app.py"),
+    env = {**os.environ, "ROBI_EXE": str(_pythonw()), "ROBI_APP": str(BASE / "baslatici.py"),
            "ROBI_DIR": str(BASE), "ROBI_ICO": str(ensure_icon())}
     subprocess.run(["powershell", "-NoProfile", "-Command", ps], env=env, timeout=20, creationflags=_NO_WINDOW)
 
 
-def create_shortcuts(name: str = "Robi", force: bool = False):
-    """İlk açılışta masaüstü + Başlat menüsü kısayolu. Kullanıcı silerse tekrar zorla oluşturmaz."""
-    if not IS_WINDOWS or (SHORTCUT_FLAG.exists() and not force):
+SHORTCUT_VERSION = "v2"  # kısayolun hedefi değişince artır
+
+
+def create_shortcuts(name: str = "Robi"):
+    """İlk açılışta masaüstü + Başlat menüsü kısayolu oluşturur. Kullanıcı silerse tekrar zorla oluşturmaz;
+    kısayolun hedefi değiştiğinde sadece var olan kısayolları yeniler."""
+    if not IS_WINDOWS:
+        return
+    current = SHORTCUT_FLAG.read_text().strip() if SHORTCUT_FLAG.exists() else ""
+    if current == SHORTCUT_VERSION:
         return
     try:
-        _make_lnk("Desktop", name)
-        _make_lnk("Programs", name)
-        SHORTCUT_FLAG.write_text("ok")
+        first_time = current == ""
+        _make_lnk("Desktop", name, only_if_exists=not first_time)
+        _make_lnk("Programs", name, only_if_exists=not first_time)
+        _make_lnk("Startup", name, only_if_exists=True)  # açılışta başlama varsa onu da yenile
+        SHORTCUT_FLAG.write_text(SHORTCUT_VERSION)
     except Exception as e:
         print("Kısayol oluşturulamadı:", e)
 

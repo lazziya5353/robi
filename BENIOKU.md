@@ -43,3 +43,17 @@ Windows, Program Files gibi sistem klasörlerine de dokunmaz.
 
 - "Beyin kapalı" yazıyorsa → Ollama'yı başlat menüsünden aç
 - Pencere açılmıyorsa → komut satırında `python app.py --debug` çalıştır, hatayı gör
+
+## ⚡ Hızlı komutlar (anında, yapay zekâsız)
+
+- `sesi kıs` · `sesi aç` · `sesi %30 yap` · `sesi kapat`
+- `durdur` / `devam et` (müzik/video) · `sonraki şarkı` · `önceki şarkı`
+- `Chrome'u aç` · `Spotify aç` · `Discord'u aç` (görev çubuğu ve Başlat menüsündeki her uygulama)
+- `bilgisayarı kilitle`
+- `30 dakika sonra kapat` · `1 saat sonra kapat` (onay ister) · `kapatmayı iptal et`
+
+## 🛟 Güvenlik ağı
+
+- Robi tek kopya çalışır; ikinci kez açarsan var olan pencere öne gelir.
+- Bir güncelleme Robi'yi bozarsa Robi önceki sürüme kendiliğinden döner. Hata `hata.log` dosyasına yazılır.
+- Robi çalışırken gönder butonu ⏹ olur; basınca iş anında durur.

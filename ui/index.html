@@ -140,6 +140,9 @@
   #send { width: 38px; height: 38px; border-radius: 12px; border: none; background: var(--accent); color: #fff; cursor: pointer;
     display: grid; place-items: center; flex-shrink: 0; }
   #send:disabled { opacity: .4; cursor: default; }
+  #send.stop { background: #3a141a; color: #ff8a95; box-shadow: inset 0 0 0 1px #5a2630; }
+  #send .ic-stop { display: none; } #send.stop .ic-stop { display: block; } #send.stop .ic-send { display: none; }
+  .cur { color: var(--accent); animation: pulse 1s infinite; }
   .hint { text-align: center; font-size: 11px; color: #4f556a; margin-top: 7px; }
 </style>
 </head>
@@ -178,7 +181,8 @@
   <div class="inputbox">
     <textarea id="input" rows="1" placeholder="Ne yapayım kral?"></textarea>
     <button id="send" onclick="send()" title="Gönder">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      <svg class="ic-send" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      <svg class="ic-stop" width="14" height="14" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3" fill="currentColor"/></svg>
     </button>
   </div>
   <div class="hint" id="hint">Ctrl+Shift+Space ile her yerden aç · Kapatınca arka planda çalışır</div>
@@ -225,8 +229,28 @@ function welcome() {
   chat.querySelectorAll('.chip').forEach(c => c.onclick = () => { input.value = c.textContent.replace(/\s*💻/, ''); send(); });
 }
 
+// ---------------- akan cevap ----------------
+let live = null, liveText = '';
+function streamDelta(t) {
+  hideWorking();
+  if (!live) {
+    const w = chat.querySelector('.welcome'); if (w) w.remove();
+    live = document.createElement('div'); live.className = 'msg bot live'; liveText = '';
+    chat.appendChild(live);
+  }
+  liveText += t;
+  live.innerHTML = md(liveText + '\u2063');
+  live.innerHTML = live.innerHTML.replace('\u2063', '<span class="cur">▍</span>');
+  scroll();
+}
+function streamEnd() { if (live) { live.innerHTML = md(liveText); live.classList.remove('live'); live = null; liveText = ''; } }
+
 function addMessage(role, text) {
   hideWorking();
+  if (role === 'bot' && live) {           // akarak yazılan balonu son haliyle bitir
+    live.innerHTML = md(text); live.classList.remove('live'); live = null; liveText = '';
+    scroll(); if (!restoring) setBusy(false); return;
+  }
   const w = chat.querySelector('.welcome'); if (w) w.remove();
   const d = document.createElement('div');
   d.className = 'msg ' + role;
@@ -347,21 +371,29 @@ function addConfirm(id, info) {
 }
 
 function setBusy(b) {
-  busy = b; sendBtn.disabled = b;
+  busy = b;
+  sendBtn.classList.toggle('stop', b);
+  sendBtn.title = b ? 'Durdur' : 'Gönder';
   const dot = document.getElementById('dot');
   dot.className = 'dot' + (b ? ' busy' : '');
   if (!b) document.getElementById('stateText').textContent = 'Hazır';
 }
 
 async function send() {
+  if (busy) { stopTask(); return; }
   const t = input.value.trim();
-  if (!t || busy) return;
+  if (!t) return;
   input.value = ''; autosize();
   addMessage('user', t);
   setBusy(true); setStatus('Düşünüyorum');
   if (window.pywebview) await pywebview.api.gonder(t);
 }
 
+async function stopTask() {
+  setStatus('Durduruyorum');
+  document.querySelectorAll('.confirm:not(.done)').forEach(c => { c.classList.add('done'); });
+  if (window.pywebview) pywebview.api.durdur();
+}
 async function newChat() {
   if (busy) return;
   if (window.pywebview) await pywebview.api.yeni_sohbet();
@@ -370,7 +402,7 @@ async function newChat() {
 
 function autosize() { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 120) + 'px'; }
 input.addEventListener('input', autosize);
-input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
+input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!busy) send(); } });
 
 function warn(text) { const w = document.getElementById('warnbar'); w.innerHTML = text; w.style.display = text ? 'block' : 'none'; }
 

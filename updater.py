@@ -17,7 +17,11 @@ BASE = Path(__file__).resolve().parent
 SECRET = BASE / "gizli.json"
 VERSION = BASE / "surum.txt"
 VARSAYILAN_REPO = "lazziya5353/robi"  # GitHub reposu: "kullanici/robi"
-KORUNAN = {"config.json", "gizli.json", "surum.txt", "sohbetler", "__pycache__", ".git"}
+KORUNAN = {"config.json", "gizli.json", "surum.txt", "sohbetler", "__pycache__", ".git",
+           "yedek", "yeni_guncelleme", "hata.log", "atla.txt", "kisayol.ok", "robi.ico"}
+BACKUP = BASE / "yedek"
+FRESH = BASE / "yeni_guncelleme"
+SKIP = BASE / "atla.txt"
 
 
 def _token():
@@ -70,7 +74,8 @@ def kontrol(repo: str, dal: str = "main"):
     d = r.json()
     sha = d["sha"]
     local = VERSION.read_text().strip() if VERSION.exists() else ""
-    if sha == local:
+    skipped = SKIP.read_text().strip() if SKIP.exists() else ""
+    if sha == local or sha == skipped:  # bozuk çıkıp geri alınan sürümü tekrar önerme
         return {"durum": "guncel"}
     msg = d.get("commit", {}).get("message", "").split("\n")[0]
     return {"durum": "var", "sha": sha, "mesaj": msg}
@@ -82,6 +87,7 @@ def guncelle(repo: str, dal: str = "main"):
         return info
     r = requests.get(f"https://api.github.com/repos/{repo}/zipball/{info['sha']}", headers=_headers(), timeout=60)
     r.raise_for_status()
+    _yedekle()
     old_req = (BASE / "requirements.txt").read_text(encoding="utf-8") if (BASE / "requirements.txt").exists() else ""
 
     with zipfile.ZipFile(io.BytesIO(r.content)) as z:
@@ -107,11 +113,29 @@ def guncelle(repo: str, dal: str = "main"):
                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
 
     VERSION.write_text(info["sha"])
+    FRESH.write_text(info["sha"])  # ilk açılış başarılı olursa silinir; çökerse başlatıcı geri alır
     return {"durum": "tamam", "mesaj": info["mesaj"]}
+
+
+def _yedekle():
+    """Güncellemeden önce çalışan sürümün kodunu yedek/ klasörüne al."""
+    if BACKUP.exists():
+        shutil.rmtree(BACKUP, ignore_errors=True)
+    BACKUP.mkdir()
+    for f in BASE.rglob("*"):
+        rel = f.relative_to(BASE)
+        if f.is_dir() or rel.parts[0] in KORUNAN:
+            continue
+        dest = BACKUP / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(f, dest)
+    if VERSION.exists():
+        shutil.copy2(VERSION, BACKUP / "surum.txt")
 
 
 def yeniden_baslat():
     exe = Path(sys.executable)
     if exe.name.lower() == "python.exe" and exe.with_name("pythonw.exe").exists():
         exe = exe.with_name("pythonw.exe")
-    subprocess.Popen([str(exe), str(BASE / "app.py")], cwd=str(BASE))
+    starter = BASE / "baslatici.py"
+    subprocess.Popen([str(exe), str(starter if starter.exists() else BASE / "app.py"), "--yeniden"], cwd=str(BASE))

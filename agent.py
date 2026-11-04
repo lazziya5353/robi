@@ -34,6 +34,7 @@ class Agent:
     def __init__(self, config, ui):
         self.cfg = config
         self.ui = ui
+        self.stop = False
         self.reset()
 
     def reset(self):
@@ -42,17 +43,41 @@ class Agent:
             isim=self.cfg.get("isim", "Robi"), tarih=date.today().strftime("%d.%m.%Y"))}]
 
     def _ask_model(self):
+        """Modele sorar; cevap yazıldıkça arayüze akıtır. Araç çağrılarını da toplar."""
         url = self.cfg.get("ollama_url", "http://localhost:11434").rstrip("/") + "/api/chat"
         r = requests.post(url, json={
             "model": self.cfg.get("model", "qwen2.5:7b"),
             "messages": self.history,
             "tools": TOOLS,
-            "stream": False,
+            "stream": True,
             "keep_alive": self.cfg.get("hafizada_tut", "60m"),
             "options": {"temperature": 0.2, "num_ctx": int(self.cfg.get("hafiza_boyutu", 8192))},
-        }, timeout=600)
+        }, timeout=600, stream=True)
         r.raise_for_status()
-        return r.json()["message"]
+        content, tool_calls = "", []
+        try:
+            for line in r.iter_lines():
+                if self.stop:
+                    raise Durduruldu()
+                if not line:
+                    continue
+                chunk = json.loads(line)
+                if chunk.get("error"):
+                    raise RuntimeError(chunk["error"])
+                m = chunk.get("message") or {}
+                if m.get("content"):
+                    content += m["content"]
+                    self.ui.stream(m["content"])
+                if m.get("tool_calls"):
+                    tool_calls += m["tool_calls"]
+                if chunk.get("done"):
+                    break
+        finally:
+            r.close()
+        msg = {"role": "assistant", "content": content}
+        if tool_calls:
+            msg["tool_calls"] = tool_calls
+        return msg
 
     def _shrink(self):
         """Hafıza dolmasın: en son 2 araç sonucu hariç eski araç sonuçlarını kısalt."""
@@ -63,12 +88,39 @@ class Agent:
                 self.history[i]["content"] = c[:600] + " ...(eski sonuç, kısaltıldı)"
 
     def chat(self, text: str) -> str:
+        self.stop = False
         self.history.append({"role": "user", "content": text})
         # Çok uzun sohbetlerde hafızayı kırp (sistem mesajı kalsın)
         if len(self.history) > 40:
             self.history = [self.history[0]] + self.history[-30:]
 
+        # Basit komutlar yapay zekâya gitmeden anında yapılır
+        import hizli
+        quick = hizli.eslestir(text)
+        if quick:
+            reply = self._run_quick(quick)
+            self.history.append({"role": "assistant", "content": reply})
+            return reply
+
+        try:
+            return self._loop()
+        except Durduruldu:
+            self.history.append({"role": "assistant", "content": "(Kullanıcı işi durdurdu.)"})
+            return "⏹ Durdurdum kral."
+
+    def _run_quick(self, q):
+        if q.get("onay"):
+            if not self.ui.ask_confirm(q["onay"]):
+                return "Tamam, iptal ettim."
+        try:
+            return q["yap"]()
+        except Exception as e:
+            return f"Yapamadım: {e}"
+
+    def _loop(self) -> str:
         for _ in range(max(int(self.cfg.get("max_adim", 8)), 14)):
+            if self.stop:
+                raise Durduruldu()
             self._shrink()
             self.ui.status("Düşünüyorum")
             msg = self._ask_model()
@@ -76,8 +128,11 @@ class Agent:
             calls = msg.get("tool_calls") or []
             if not calls:
                 return msg.get("content", "").strip() or "Tamamdır."
+            self.ui.stream_end()  # araçtan önce yazdığı ara cümle ayrı balonda kalsın
 
             for call in calls:
+                if self.stop:
+                    raise Durduruldu()
                 fn = call.get("function", {})
                 name = fn.get("name", "")
                 args = fn.get("arguments") or {}
@@ -89,6 +144,8 @@ class Agent:
 
                 if name in ONAYLI:
                     ok = self.ui.ask_confirm(describe_action(name, args))
+                    if self.stop:
+                        raise Durduruldu()
                     if ok:
                         self.ui.status("Yapıyorum")
                         result = run_tool(name, args)
@@ -104,3 +161,7 @@ class Agent:
                 self.history.append({"role": "tool", "content": content, "tool_name": name})
 
         return "Bu iş çok fazla adım sürdü kral, biraz daha parçalara bölebilir misin?"
+
+
+class Durduruldu(Exception):
+    pass

@@ -330,6 +330,26 @@ def web_ac(adres: str):
     return {"tamam": f"{adres} varsayılan TARAYICIDA açıldı (uygulamada değil)."}
 
 
+# --------------------------- Ses, medya, güç ---------------------------
+
+def ses_medya(islem: str, deger: int = 10):
+    import hizli
+    if islem in ("ac", "kis", "sessiz", "yuzde"):
+        return {"tamam": hizli.ses(islem, int(deger or 10))}
+    if islem in ("oynat", "sonraki", "onceki"):
+        return {"tamam": hizli.medya(islem)}
+    if islem == "kilitle":
+        return {"tamam": hizli.kilitle()}
+    return {"hata": f"Bilinmeyen işlem: {islem}"}
+
+
+def zamanli_kapat(dakika: int = 0, iptal: bool = False):
+    import hizli
+    if iptal:
+        return {"tamam": hizli.kapatma_iptal()}
+    return {"tamam": hizli.zamanli_kapat(int(dakika))}
+
+
 # --------------------------- Not / dosya kaydetme ---------------------------
 
 def not_kaydet(baslik: str, icerik: str, klasor: str = "masaüstü", ac: bool = True):
@@ -688,6 +708,8 @@ TOOLS = [
     _t("uygulamalari_listele", "Bilgisayarda kurulu uygulamaları listeler (ad, yayıncı, kurulum tarihi, boyut)."),
     _t("uygulama_ac", "Bir programı ya da görev çubuğu/başlat menüsündeki uygulamayı açar. Örn: 'chrome', 'spotify', 'YouTube', 'WhatsApp'.", {"ad": {"type": "string"}}, ["ad"]),
     _t("web_ac", "Varsayılan TARAYICIDA bir web sitesi açar. YouTube için bunu değil youtube_ac'ı kullan.", {"adres": {"type": "string"}}, ["adres"]),
+    _t("ses_medya", "Ses ve medya kontrolü. islem: 'ac'/'kis' (deger=yüzde kadar), 'yuzde' (deger=hedef ses), 'sessiz', 'oynat' (durdur/devam), 'sonraki', 'onceki', 'kilitle' (bilgisayarı kilitler).", {"islem": {"type": "string", "enum": ["ac", "kis", "yuzde", "sessiz", "oynat", "sonraki", "onceki", "kilitle"]}, "deger": {"type": "integer"}}, ["islem"]),
+    _t("zamanli_kapat", "Bilgisayarı belirtilen dakika sonra kapatır (onay otomatik istenir). iptal=true ise ayarlı kapatmayı iptal eder.", {"dakika": {"type": "integer"}, "iptal": {"type": "boolean"}}),
     _t("not_kaydet", "Yazıyı yeni bir .txt dosyasına kaydeder ve Not Defteri'nde açar. Var olan dosyanın üstüne yazmaz. 'icerik' tam ve düzenli metin olmalı.", {"baslik": {"type": "string", "description": "Dosya adı, örn 'Süper Lig puan durumu'"}, "icerik": {"type": "string"}, "klasor": _KLASOR, "ac": {"type": "boolean"}}, ["baslik", "icerik"]),
     _t("web_ara", "İnternette arama yapar; başlık, adres ve kısa özet döner. Güncel bilgi (puan durumu, fikstür, haber, fiyat, hava) için ilk adım.", {"arama": {"type": "string"}, "adet": {"type": "integer"}}, ["arama"]),
     _t("sayfa_oku", "Bir web sayfasına girip yazısını ve tablolarını okur. 'odak' verilirse sayfanın o kelimenin geçtiği kısmından başlar. Uzun sayfalarda 'baslangic' ile devamını okursun.", {"adres": {"type": "string"}, "odak": {"type": "string", "description": "Sayfada aranacak kelime, örn 'Puan durumu'"}, "baslangic": {"type": "integer"}}, ["adres"]),
@@ -707,11 +729,12 @@ _FUNCS = {
     "uygulama_ac": uygulama_ac, "web_ac": web_ac, "gecici_dosya_boyutu": gecici_dosya_boyutu,
     "youtube_ara": youtube_ara, "youtube_ac": youtube_ac,
     "web_ara": web_ara, "sayfa_oku": sayfa_oku, "not_kaydet": not_kaydet,
+    "ses_medya": ses_medya, "zamanli_kapat": zamanli_kapat,
     "calisan_programlar": calisan_programlar, "dosya_sil": dosya_sil, "dosya_tasi": dosya_tasi,
     "uygulama_kaldir": uygulama_kaldir, "gecici_dosyalari_temizle": gecici_dosyalari_temizle,
 }
 
-ONAYLI = {"dosya_sil", "dosya_tasi", "uygulama_kaldir", "gecici_dosyalari_temizle"}
+ONAYLI = {"dosya_sil", "dosya_tasi", "uygulama_kaldir", "gecici_dosyalari_temizle", "zamanli_kapat"}
 
 _STATUS = {
     "sistem_bilgisi": "Sistem bilgilerine bakıyorum", "klasor_listele": "Klasöre bakıyorum",
@@ -738,6 +761,10 @@ def describe_action(name, args):
         return {"baslik": f"{len(y)} öğe '{args.get('hedef')}' klasörüne taşınacak", "detay": y}
     if name == "uygulama_kaldir":
         return {"baslik": "Uygulama kaldırılacak", "detay": [args.get("ad", "?")]}
+    if name == "zamanli_kapat":
+        if args.get("iptal"):
+            return {"baslik": "Zamanlı kapatma iptal edilecek", "detay": []}
+        return {"baslik": f"Bilgisayar {args.get('dakika', '?')} dakika sonra kapanacak", "detay": ["Açık işlerini kaydetmeyi unutma"]}
     if name == "gecici_dosyalari_temizle":
         return {"baslik": "Geçici dosyalar silinecek", "detay": ["Kullanımda olanlar atlanır"]}
     return {"baslik": name, "detay": [str(args)]}

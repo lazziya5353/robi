@@ -51,6 +51,7 @@ class Api:
         self._agent = Agent(cfg, self)
         self._chat_id = None
         self._display = []  # ekranda görünen mesajlar: {"r": "user"|"bot"|"sys", "t": "..."}
+        self._sbuf, self._stext, self._slast = "", "", 0.0
 
     # --- JS -> Python ---
     def ayarlar(self):
@@ -171,7 +172,36 @@ class Api:
             self._window.evaluate_js(f"{fn}({payload})")
 
     def status(self, text):
+        self._flush()
         self._js("setStatus", text)
+
+    # --- akan cevap: parçaları biriktirip pencereye ~12 kez/sn gönder ---
+    def stream(self, delta):
+        self._sbuf += delta
+        self._stext += delta
+        if time.time() - self._slast > 0.08:
+            self._flush()
+
+    def _flush(self):
+        if self._sbuf:
+            chunk, self._sbuf = self._sbuf, ""
+            self._slast = time.time()
+            self._js("streamDelta", chunk)
+
+    def stream_end(self):
+        """Araç çağrısından önce yazılan ara cümleyi ayrı balon olarak bitir."""
+        self._flush()
+        if self._stext.strip():
+            self._display.append({"r": "bot", "t": self._stext.strip()})
+        self._stext = ""
+        self._js("streamEnd")
+
+    def durdur(self):
+        self._agent.stop = True
+        for item in list(self._pending.values()):  # bekleyen onay varsa iptal say
+            item["sonuc"] = False
+            item["event"].set()
+        return True
 
     def ask_confirm(self, info):
         req_id = uuid.uuid4().hex[:8]
@@ -183,6 +213,7 @@ class Api:
         return self._pending.pop(req_id)["sonuc"]
 
     def _run(self, text):
+        self._sbuf, self._stext = "", ""
         try:
             reply = self._agent.chat(text)
         except requests.ConnectionError:
@@ -196,6 +227,7 @@ class Api:
                 reply = f"Bir hata oldu: {e}"
         except Exception as e:
             reply = f"Bir hata oldu: {e}"
+        self._flush()
         self._display.append({"r": "bot", "t": reply})
         self._save()
         self._busy = False
@@ -213,7 +245,37 @@ class Api:
             self._window.hide()
 
 
+TEK_PORT = 47391  # sadece bu bilgisayarın içinden erişilen kilit kapısı
+
+
+def tek_kopya_kilidi(bekle: bool):
+    """Robi zaten açıksa None döner (ve açık olana 'göster' der). Değilse kilidi tutan soketi döner."""
+    import socket
+    for _ in range(24 if bekle else 1):  # güncelleme sonrası eski kopyanın kapanmasını bekle
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        try:
+            s.bind(("127.0.0.1", TEK_PORT))
+            s.listen(5)
+            return s
+        except OSError:
+            s.close()
+            time.sleep(0.5)
+    try:
+        c = socket.create_connection(("127.0.0.1", TEK_PORT), timeout=2)
+        c.sendall(b"goster")
+        c.close()
+    except Exception:
+        pass
+    return None
+
+
 def main():
+    lock = tek_kopya_kilidi(bekle="--yeniden" in sys.argv)
+    if lock is None:
+        return  # Robi zaten açık; onun penceresini öne getirdik
+
     import kimlik
     kimlik.set_app_id()
     kimlik.ensure_icon()
@@ -235,7 +297,27 @@ def main():
         return False
 
     window.events.closing += on_closing
-    window.events.shown += kimlik.apply_window_icon
+
+    def on_shown():
+        kimlik.apply_window_icon()
+        # açılış başarılı → güncelleme "sağlam" sayılır
+        time.sleep(3)
+        (BASE / "yeni_guncelleme").unlink(missing_ok=True)
+
+    window.events.shown += on_shown
+
+    # ikinci kez açılmaya çalışılırsa pencereyi öne getir
+    def lock_listener():
+        while True:
+            try:
+                conn, _ = lock.accept()
+                if conn.recv(16) == b"goster":
+                    api.show()
+                conn.close()
+            except Exception:
+                time.sleep(1)
+
+    threading.Thread(target=lock_listener, daemon=True).start()
 
     # --- sistem tepsisi ---
     def start_tray():
