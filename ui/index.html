@@ -328,6 +328,7 @@ async function testKey() {
   kh.className = 'hint2'; kh.textContent = '⏳ Deniyorum…';
   fillSettings(await pywebview.api.ayar_kaydet(readSettings()));
   const r = await pywebview.api.anahtar_test();
+  fillSettings(await pywebview.api.ayar_getir());  // test isteğinin harcamasını da göster
   kh.className = 'hint2 ' + (r.ok ? 'ok' : 'err'); kh.textContent = r.mesaj;
 }
 
