@@ -405,6 +405,28 @@ def _search_ddg(q):
     return out
 
 
+def _real_url(href: str) -> str:
+    """Bing'in yönlendirme linkini (bing.com/ck/a?...&u=a1<base64>) gerçek adrese çevirir."""
+    import base64
+    from urllib.parse import urlparse, parse_qs
+    if "bing.com/ck/a" not in href:
+        return href
+    u = parse_qs(urlparse(href.replace("&amp;", "&")).query).get("u", [""])[0]
+    if u.startswith("a1"):
+        b64 = u[2:]
+        try:
+            return base64.urlsafe_b64decode(b64 + "=" * (-len(b64) % 4)).decode("utf-8")
+        except Exception:
+            pass
+    return href
+
+
+def _domain(url: str) -> str:
+    from urllib.parse import urlparse
+    d = urlparse(url).netloc.lower()
+    return d[4:] if d.startswith("www.") else d
+
+
 def _search_bing(q):
     import re, requests
     from urllib.parse import quote_plus
@@ -415,24 +437,29 @@ def _search_bing(q):
         if not a:
             continue
         sn = re.search(r"<p[^>]*>(.*?)</p>", b, re.S)
-        out.append({"başlık": _strip_tags(a.group(2)), "adres": a.group(1), "özet": _strip_tags(sn.group(1)) if sn else ""})
+        out.append({"başlık": _strip_tags(a.group(2)), "adres": _real_url(a.group(1)),
+                    "özet": _strip_tags(sn.group(1)) if sn else ""})
     return out
 
 
-def web_ara(arama: str, adet: int = 6):
-    results, errors = [], []
+def _search(q):
+    errors = []
     for fn in (_search_ddg, _search_bing):
         try:
-            results = fn(arama)
+            res = [r for r in fn(q) if "bing.com/ck/a" not in r["adres"]]
+            if res:
+                return res, errors
         except Exception as e:
             errors.append(str(e))
-            results = []
-        if results:
-            break
+    return [], errors
+
+
+def web_ara(arama: str, adet: int = 6):
+    results, errors = _search(arama)
     if not results:
         return {"hata": "Arama sonucu alınamadı.", "detay": errors}
     return {"arama": arama, "sonuçlar": results[: int(adet)],
-            "not": "Şimdi en uygun 1-2 sonucu sayfa_oku ile oku. Adres uydurma, sadece bu adresleri kullan."}
+            "not": "Adres uydurma, sadece bu adresleri kullan. Genelde arastir aracı daha iyidir."}
 
 
 class _TextExtractor(__import__("html.parser", fromlist=["HTMLParser"]).HTMLParser):
@@ -476,18 +503,18 @@ class _TextExtractor(__import__("html.parser", fromlist=["HTMLParser"]).HTMLPars
         return "\n".join(l for l in lines if len(l) > 1)
 
 
-def sayfa_oku(adres: str, odak: str = "", baslangic: int = 0):
+def _fetch_text(adres: str, timeout: int = 15):
+    """Sayfayı indirip düz yazıya (tablolar | ile) çevirir. (başlık, adres, metin) ya da hata metni döner."""
     import requests
-    if not adres.startswith(("http://", "https://")):
-        adres = "https://" + adres
+    adres = _real_url(adres if adres.startswith(("http://", "https://")) else "https://" + adres)
     try:
-        r = requests.get(adres, headers=_UA, timeout=20)
+        r = requests.get(adres, headers=_UA, timeout=timeout)
     except Exception as e:
-        return {"hata": f"Sayfaya girilemedi: {e}"}
+        return None, f"Sayfaya girilemedi: {e}"
     if r.status_code >= 400:
-        return {"hata": f"Sayfa açılmadı (HTTP {r.status_code}). Başka bir sonuca geç."}
+        return None, f"Sayfa açılmadı (HTTP {r.status_code})."
     if "html" not in r.headers.get("Content-Type", "html"):
-        return {"hata": "Bu adres bir web sayfası değil (dosya olabilir)."}
+        return None, "Bu adres bir web sayfası değil."
     if not r.encoding or r.encoding.lower() == "iso-8859-1":
         r.encoding = r.apparent_encoding
     p = _TextExtractor()
@@ -497,19 +524,89 @@ def sayfa_oku(adres: str, odak: str = "", baslangic: int = 0):
         pass
     text = p.text()
     if len(text) < 200:
-        return {"hata": "Sayfadan okunabilir yazı çıkmadı (site içeriği sonradan yüklüyor olabilir). Başka bir sonuca geç.",
-                "başlık": p.title.strip()}
+        return None, "Sayfadan okunabilir yazı çıkmadı (içerik sonradan yükleniyor olabilir)."
+    return {"başlık": p.title.strip(), "adres": r.url, "metin": text}, ""
+
+
+def _keywords(q: str):
+    import re
+    stop = {"ve", "ile", "bir", "bu", "şu", "ne", "nedir", "nasıl", "kaç", "mi", "mı", "mu", "mü", "için",
+            "bana", "yaz", "söyle", "araştır", "bul", "güncel", "son", "olan", "the", "of"}
+    words = [w for w in re.findall(r"\w+", _norm(q)) if len(w) >= 3 and w not in stop]
+    return [w[:5] for w in words]  # Türkçe ekleri yutmak için kök gibi ilk 5 harf
+
+
+def _best_part(text: str, q: str, limit: int = 2200) -> str:
+    """Sayfanın soruyla en ilgili bölümünü seçer (tablolar dahil)."""
+    lines = text.split("\n")
+    keys = _keywords(q)
+    if not keys:
+        return text[:limit]
+    norm_lines = [_norm(l) for l in lines]
+    score = [sum(1 for k in keys if k in nl) + (0.3 if "|" in nl else 0) for nl in norm_lines]
+    best, best_i = -1, 0
+    win = 0  # kayan pencerede (yaklaşık limit uzunluğunda) en yüksek puan
+    j, total_len, run = 0, 0, 0.0
+    for i in range(len(lines)):
+        while j < len(lines) and total_len + len(lines[j]) < limit:
+            total_len += len(lines[j]) + 1
+            run += score[j]
+            j += 1
+        if run > best:
+            best, best_i = run, i
+        total_len -= len(lines[i]) + 1
+        run -= score[i]
+        if j <= i:
+            j, total_len, run = i + 1, 0, 0.0
+    out, n = [], 0
+    for l in lines[best_i:]:
+        if n + len(l) > limit:
+            break
+        out.append(l)
+        n += len(l) + 1
+    return "\n".join(out)
+
+
+def sayfa_oku(adres: str, odak: str = "", baslangic: int = 0):
+    page, err = _fetch_text(adres, timeout=20)
+    if not page:
+        return {"hata": err + " Başka bir sonuca geç."}
+    text = page["metin"]
     LIMIT = 5000
     start = int(baslangic or 0)
     if odak and not baslangic:
-        i = _norm(text).find(_norm(odak))
-        if i > 0:
-            start = max(0, i - 300)
+        chunk = _best_part(text, odak, LIMIT)
+        return {"başlık": page["başlık"], "site": _domain(page["adres"]), "metin": chunk}
     chunk = text[start:start + LIMIT]
-    res = {"başlık": p.title.strip(), "adres": r.url, "metin": chunk}
+    res = {"başlık": page["başlık"], "site": _domain(page["adres"]), "metin": chunk}
     if start + LIMIT < len(text):
         res["devamı_var"] = f"Sayfanın devamı için sayfa_oku'yu baslangic={start + LIMIT} ile tekrar çağır."
     return res
+
+
+def arastir(soru: str, arama: str = ""):
+    """Arar, en iyi sonuçları AYNI ANDA okur, her sayfanın soruyla ilgili kısmını döner."""
+    from concurrent.futures import ThreadPoolExecutor
+    results, errors = _search(arama or soru)
+    if not results:
+        return {"hata": "Arama yapılamadı.", "detay": errors}
+    cands = results[:6]
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        pages = list(ex.map(lambda r: _fetch_text(r["adres"], timeout=10), cands))
+    sources = []
+    for r, (page, err) in zip(cands, pages):
+        if not page:
+            continue
+        sources.append({"site": _domain(page["adres"]), "başlık": page["başlık"][:90],
+                        "içerik": _best_part(page["metin"], soru + " " + (arama or ""), 1800)})
+        if len(sources) >= 3:
+            break
+    if not sources:
+        return {"hata": "Sonuç sayfalarının hiçbiri okunamadı.",
+                "arama_özetleri": [{"site": _domain(r["adres"]), "özet": r["özet"]} for r in cands[:5]]}
+    return {"soru": soru, "kaynaklar": sources,
+            "not": "Bu içeriklerden cevabı KENDİN yaz (gerekirse tablo). Link/adres YAZMA. "
+                   "En sona sadece 'Kaynak: site adları' ekle. Bilgi yoksa dürüstçe söyle."}
 
 
 # --------------------------- YouTube ---------------------------
@@ -711,6 +808,7 @@ TOOLS = [
     _t("ses_medya", "Ses ve medya kontrolü. islem: 'ac'/'kis' (deger=yüzde kadar), 'yuzde' (deger=hedef ses), 'sessiz', 'oynat' (durdur/devam), 'sonraki', 'onceki', 'kilitle' (bilgisayarı kilitler).", {"islem": {"type": "string", "enum": ["ac", "kis", "yuzde", "sessiz", "oynat", "sonraki", "onceki", "kilitle"]}, "deger": {"type": "integer"}}, ["islem"]),
     _t("zamanli_kapat", "Bilgisayarı belirtilen dakika sonra kapatır (onay otomatik istenir). iptal=true ise ayarlı kapatmayı iptal eder.", {"dakika": {"type": "integer"}, "iptal": {"type": "boolean"}}),
     _t("not_kaydet", "Yazıyı yeni bir .txt dosyasına kaydeder ve Not Defteri'nde açar. Var olan dosyanın üstüne yazmaz. 'icerik' tam ve düzenli metin olmalı.", {"baslik": {"type": "string", "description": "Dosya adı, örn 'Süper Lig puan durumu'"}, "icerik": {"type": "string"}, "klasor": _KLASOR, "ac": {"type": "boolean"}}, ["baslik", "icerik"]),
+    _t("arastir", "GÜNCEL BİLGİ İÇİN İLK TERCİH. İnternette arar, en iyi 3 sayfayı okur ve soruyla ilgili kısımları getirir. Puan durumu, fikstür, maç sonucu, haber, fiyat, hava, kur vb.", {"soru": {"type": "string", "description": "Kullanıcının sorusu"}, "arama": {"type": "string", "description": "Arama motoruna yazılacak kısa sorgu, örn 'şampiyonlar ligi puan durumu 2026-27'"}}, ["soru"]),
     _t("web_ara", "İnternette arama yapar; başlık, adres ve kısa özet döner. Güncel bilgi (puan durumu, fikstür, haber, fiyat, hava) için ilk adım.", {"arama": {"type": "string"}, "adet": {"type": "integer"}}, ["arama"]),
     _t("sayfa_oku", "Bir web sayfasına girip yazısını ve tablolarını okur. 'odak' verilirse sayfanın o kelimenin geçtiği kısmından başlar. Uzun sayfalarda 'baslangic' ile devamını okursun.", {"adres": {"type": "string"}, "odak": {"type": "string", "description": "Sayfada aranacak kelime, örn 'Puan durumu'"}, "baslangic": {"type": "integer"}}, ["adres"]),
     _t("youtube_ara", "YouTube'da arama yapar, ilk sonuçların başlık, kanal, süre ve izlenmesini döner. Video açmaz.", {"arama": {"type": "string"}, "adet": {"type": "integer"}}, ["arama"]),
@@ -728,7 +826,7 @@ _FUNCS = {
     "buyuk_dosyalar": buyuk_dosyalar, "uygulamalari_listele": uygulamalari_listele,
     "uygulama_ac": uygulama_ac, "web_ac": web_ac, "gecici_dosya_boyutu": gecici_dosya_boyutu,
     "youtube_ara": youtube_ara, "youtube_ac": youtube_ac,
-    "web_ara": web_ara, "sayfa_oku": sayfa_oku, "not_kaydet": not_kaydet,
+    "web_ara": web_ara, "sayfa_oku": sayfa_oku, "arastir": arastir, "not_kaydet": not_kaydet,
     "ses_medya": ses_medya, "zamanli_kapat": zamanli_kapat,
     "calisan_programlar": calisan_programlar, "dosya_sil": dosya_sil, "dosya_tasi": dosya_tasi,
     "uygulama_kaldir": uygulama_kaldir, "gecici_dosyalari_temizle": gecici_dosyalari_temizle,
@@ -743,7 +841,7 @@ _STATUS = {
     "web_ac": "Siteyi açıyorum", "gecici_dosya_boyutu": "Geçici dosyaları ölçüyorum",
     "calisan_programlar": "Çalışan programlara bakıyorum",
     "youtube_ara": "YouTube'da arıyorum", "youtube_ac": "YouTube'u açıyorum",
-    "web_ara": "İnternette arıyorum", "sayfa_oku": "Sayfayı okuyorum", "not_kaydet": "Not defterine yazıyorum",
+    "web_ara": "İnternette arıyorum", "arastir": "Araştırıyorum, sayfaları okuyorum", "sayfa_oku": "Sayfayı okuyorum", "not_kaydet": "Not defterine yazıyorum",
 }
 
 

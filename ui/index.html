@@ -218,7 +218,10 @@ function md(t) {
   }
   if (inList) out.push('</ul>');
   if (inTable) out.push('</table></div>');
-  return out.join('').replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank">$1</a>');
+  // linkleri uzun adres yerine kısa site adıyla göster
+  const site = u => { try { return new URL(u.replace(/&amp;/g, '&')).hostname.replace(/^www\./, ''); } catch (e) { return 'link'; } };
+  return out.join('').replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)|(https?:\/\/[^\s<)]+)/g,
+    (m, text, u1, u2) => { const u = u1 || u2; return `<a href="${u}" target="_blank" title="${u}">${u1 ? text : site(u)} ↗</a>`; });
 }
 function scroll() { chat.scrollTop = chat.scrollHeight; }
 
