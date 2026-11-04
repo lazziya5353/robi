@@ -589,6 +589,8 @@ async function init() {
     if (w && c.beyin !== 'yerel' && !c.anahtar_var) w.insertAdjacentHTML('beforeend',
       '<div class="hint2" style="margin-top:16px">💡 Daha akıllı cevaplar için <a href="#" onclick="openSettings();return false" style="color:var(--accent2)">⚙️ Ayarlar</a>\'dan Claude anahtarını ekle</div>'); });
   const s = await pywebview.api.ollama_durum();
+  const cfg0 = await pywebview.api.ayar_getir();
+  if (cfg0.beyin === 'claude' && cfg0.anahtar_var) return;  // sadece Claude kullanan için yerel beyin uyarısı gereksiz
   if (!s.calisiyor) { warn('⚠️ <b>Ollama çalışmıyor.</b> Başlat menüsünden Ollama\'yı aç.'); document.getElementById('dot').className = 'dot off'; document.getElementById('stateText').textContent = 'Beyin kapalı'; }
   else if (!s.model_var) warn(`⚠️ Model inmemiş. Komut satırında <code>ollama pull ${esc(a.model)}</code> çalıştır.`);
 }

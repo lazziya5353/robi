@@ -438,10 +438,11 @@ def main():
     window.events.closing += on_closing
 
     def on_shown():
-        kimlik.apply_window_icon()
-        # açılış başarılı → güncelleme "sağlam" sayılır
-        time.sleep(3)
-        (BASE / "yeni_guncelleme").unlink(missing_ok=True)
+        def later():
+            kimlik.apply_window_icon()
+            time.sleep(3)  # açılış başarılı → güncelleme "sağlam" sayılır
+            (BASE / "yeni_guncelleme").unlink(missing_ok=True)
+        threading.Thread(target=later, daemon=True).start()  # pencereyi bekletme
 
     window.events.shown += on_shown
 
