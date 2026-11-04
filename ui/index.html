@@ -96,6 +96,9 @@
   .mbox textarea { width: 100%; min-height: 190px; resize: vertical; background: var(--bg); border: 1px solid var(--line); border-radius: 9px;
     padding: 9px 11px; color: var(--text); font: 12.5px/1.5 Consolas, "Cascadia Mono", monospace; outline: none; }
   .mbox textarea:focus { border-color: var(--accent); }
+  .tgcode { font: 700 26px Consolas, monospace; letter-spacing: 6px; color: var(--accent2); background: var(--bg); border: 1px dashed #2a6b5c;
+    border-radius: 10px; text-align: center; padding: 8px; margin: 8px 0 4px; user-select: all; }
+  .tgok { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--ok); }
   .msg.sys { align-self: center; font-size: 12px; color: var(--muted); background: none; padding: 2px 8px; }
   header {
     display: flex; align-items: center; gap: 12px; padding: 14px 16px;
@@ -378,9 +381,10 @@ function fillSettings(c) {
 async function openSettings() {
   if (!window.pywebview) return;
   fillSettings(await pywebview.api.ayar_getir());
+  renderTg();
   document.getElementById('modal').classList.add('show');
 }
-function closeSettings() { document.getElementById('modal').classList.remove('show'); }
+function closeSettings() { document.getElementById('modal').classList.remove('show'); clearTimeout(tgTimer); }
 function readSettings() {
   return { beyin: (document.querySelector('input[name=beyin]:checked') || {}).value,
            claude_model: (document.querySelector('input[name=cmodel]:checked') || {}).value,
@@ -400,6 +404,34 @@ async function testKey() {
   fillSettings(await pywebview.api.ayar_getir());  // test isteğinin harcamasını da göster
   kh.className = 'hint2 ' + (r.ok ? 'ok' : 'err'); kh.textContent = r.mesaj;
 }
+
+// ---------------- Telegram ----------------
+function remoteUser(text) { addMessage('user', '📱 ' + text); setBusy(true); setStatus('Telefondan gelen işi yapıyorum'); }
+function tgPaired() { addMessage('sys', '📱 Telegram eşleşti! Artık telefondan Robi\'ye iş verebilirsin.');
+  if (document.getElementById('modal').classList.contains('show')) renderTg(); }
+let tgTimer = null;
+async function renderTg() {
+  const box = document.getElementById('tgbox');
+  const d = await pywebview.api.tg_durum();
+  clearTimeout(tgTimer);
+  if (d.durum === 'yok' || d.durum === 'hata') {
+    box.innerHTML = `<div class="keyrow"><input type="password" id="tgtoken" placeholder="BotFather'dan aldığın token (123456:ABC...)"><button class="sbtn" onclick="tgSave()">Bağla</button></div>
+      <div class="hint2 ${d.durum === 'hata' ? 'err' : ''}">${d.durum === 'hata' ? esc(d.mesaj) : 'Telegram → @BotFather → /newbot → çıkan token\'ı buraya yapıştır'}</div>`;
+  } else if (d.durum === 'eslesme') {
+    box.innerHTML = `<div class="hint2">Telegram'da <b>@${esc(d.bot || 'botun')}</b>'a şu kodu gönder:</div><div class="tgcode">${esc(d.kod)}</div>
+      <div class="hint2">Kodu gönderen kişi Robi'nin tek sahibi olur; başka kimse kullanamaz. <a href="#" onclick="tgRemove();return false" style="color:var(--muted)">Vazgeç</a></div>`;
+    tgTimer = setTimeout(renderTg, 3000);  // eşleşmeyi kendiliğinden fark et
+  } else {
+    box.innerHTML = `<div class="tgok"><span>✅ Bağlı: <b>@${esc(d.bot)}</b></span><button class="sbtn" onclick="tgRemove()">Bağlantıyı kaldır</button></div>
+      <div class="hint2">Telefondan yazdığın işler burada 📱 ile görünür. Bitince cevap, rapor dosyası ve onay butonları telefonuna gelir.</div>`;
+  }
+}
+async function tgSave() {
+  const t = document.getElementById('tgtoken').value.trim(); if (!t) return;
+  document.getElementById('tgbox').insertAdjacentHTML('beforeend', '<div class="hint2">⏳ Bağlanıyor…</div>');
+  await pywebview.api.tg_kaydet(t); renderTg();
+}
+async function tgRemove() { await pywebview.api.tg_kaldir(); renderTg(); }
 
 // ---------------- ben yokken + onay bekleyenler ----------------
 async function toggleAway() {
@@ -608,6 +640,8 @@ input.focus();
       <label class="opt"><input type="radio" name="beyin" value="yerel"><div><b>Sadece yerel</b><small>Tamamen ücretsiz, internetsiz çalışır</small></div></label>
     </div></div>
     <div class="fld"><label>CLAUDE MODELİ</label><div class="opts" id="mlist"></div></div>
+    <div class="fld"><label>📱 TELEGRAM (TELEFONDAN KOMUT VE RAPOR)</label>
+      <div id="tgbox"></div></div>
     <div class="fld"><label>ROBİ'NİN HAFIZASI</label>
       <textarea id="hafiza" spellcheck="false"></textarea>
       <div class="hint2">Robi bunu her mesajda okur. Tercihlerini, kurallarını buraya yaz. Sohbette "bunu hatırla" dersen kendisi de ekler.</div></div>

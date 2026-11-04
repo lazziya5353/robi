@@ -143,7 +143,9 @@ class Agent:
         self.stop = False
         self._last_user = text
         self._made_report = False
+        self.created_files = []
         self.history.append({"role": "user", "content": text})
+        self.away = False
         # Çok uzun sohbetlerde hafızayı kırp (sistem mesajı kalsın)
         if len(self.history) > 40:
             self.history = [self.history[0]] + self.history[-30:]
@@ -236,6 +238,7 @@ class Agent:
 
                 if name in ("word_kaydet", "not_kaydet") and "tamam" in result:
                     self._made_report = True
+                    self.created_files.append(result.get("dosya"))
                 content = json.dumps(result, ensure_ascii=False)
                 if len(content) > 8000:  # küçük modeller için kırp
                     content = content[:8000] + " ...(kırpıldı)"
@@ -253,7 +256,10 @@ class Agent:
             icerik += "\n\n## Onay bekleyen işler\n" + "\n".join(f"- {p['baslik']}" for p in pend)
         r = run_tool("word_kaydet", {"baslik": f"Robi Raporu - {datetime.now():%d.%m.%Y %H.%M}", "icerik": icerik,
                                      "klasor": "raporlar", "ac": False})
-        return f"\n\n📄 Raporu kaydettim: `{r['dosya']}`" if "dosya" in r else ""
+        if "dosya" in r:
+            self.created_files.append(r["dosya"])
+            return f"\n\n📄 Raporu kaydettim: `{r['dosya']}`"
+        return ""
 
 
 class Durduruldu(Exception):

@@ -65,6 +65,17 @@ Sağ üstteki **Ben yokken** düğmesiyle ya da mesajda "ben çıkıyorum", "dö
 - İş sürerken bilgisayar uykuya geçmez (bilgisayarın açık olması gerekir)
 - Bitince **Belgeler\Robi Raporları** klasörüne Word raporu kaydeder
 
+## 📱 Telegram (telefondan komut ve rapor)
+
+1. Telegram'da **@BotFather** → `/newbot` → isim ve kullanıcı adı ver → çıkan **token**'ı kopyala
+2. Robi → **⚙️ Ayarlar → Telegram** → token'ı yapıştır → **Bağla**
+3. Ekranda çıkan **6 haneli kodu** bota gönder → eşleşir. Bot artık sadece seni tanır.
+
+Sonra telefondan Robi'ye normal yazar gibi iş ver. Cevap, rapor dosyası (Word) ve onay butonları telefonuna gelir.
+Komutlar: `/durum` · `/durdur` · `/onaylar` · `/ekran` (ekran görüntüsü) · `/yardim`
+"Ben yokken" modunda bilgisayardan verdiğin işin raporu da bitince telefonuna gelir.
+Bilgisayarın açık ve uykuya geçmeyecek şekilde ayarlı olması gerekir (Ayarlar → Güç → Uyku: Hiçbir zaman).
+
 ## 🧠 Robi'nin hafızası
 
 **⚙️ Ayarlar → Robi'nin Hafızası**: Robi bunu her mesajda okur. Tercihlerini ve kurallarını buraya yaz.

@@ -57,20 +57,69 @@ class Api:
         self._display = []  # ekranda görünen mesajlar: {"r": "user"|"bot"|"sys", "t": "..."}
         self._sbuf, self._stext, self._slast = "", "", 0.0
         self.away = False  # "Ben yokken" düğmesi
+        self._source = "ui"    # son işi kim verdi: "ui" ya da "telegram"
+        self._queue = []       # Robi meşgulken telefondan gelen işler
+        self._last_task = ""
+        from telegram_bag import Telegram
+        self._tg = Telegram(self)
 
     # --- JS -> Python ---
     def ayarlar(self):
         return {"isim": self._cfg["isim"], "model": self._cfg["model"], "kisayol": self._cfg["kisayol"]}
 
-    def gonder(self, text):
+    def gonder(self, text, kaynak="ui"):
         if self._busy:
             return False
         self._busy = True
+        self._source = kaynak
+        self._last_task = text
         if not self._chat_id:
             self._chat_id = time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:4]
         self._display.append({"r": "user", "t": text})
         threading.Thread(target=self._run, args=(text,), daemon=True).start()
         return True
+
+    # --- Telegram ---
+    def telegram_mesaj(self, text):
+        if self._busy:
+            self._queue.append(text)
+            self._tg.send(f"⏳ Şu an başka bir iş yapıyorum, bitince bunu yapacağım. (Sırada {len(self._queue)} iş var)")
+            return
+        self._js("remoteUser", text)
+        self.gonder(text, "telegram")
+
+    def durum_metni(self):
+        import claude_beyin
+        h = claude_beyin.harcama()
+        s = f"⚙️ Şu an çalışıyorum: _{self._last_task[:120]}_" if self._busy else "😴 Boştayım, iş bekliyorum."
+        if self._queue:
+            s += f"\nSırada {len(self._queue)} iş var."
+        n = len(self._pending_list())
+        if n:
+            s += f"\n⏳ Onay bekleyen {n} iş var → /onaylar"
+        s += f"\n💰 Bu ay Claude: ${h['usd']:.3f} / ${self._cfg.get('aylik_limit_usd', 2.0)}"
+        return s
+
+    def ekran_goruntusu(self):
+        try:
+            from PIL import ImageGrab
+            img = ImageGrab.grab(all_screens=True)
+            if img.width > 2560:
+                img = img.resize((2560, int(img.height * 2560 / img.width)))
+            buf = __import__("io").BytesIO()
+            img.save(buf, "PNG", optimize=True)
+            return buf.getvalue()
+        except Exception:
+            return None
+
+    def tg_durum(self):
+        return self._tg.durum()
+
+    def tg_kaydet(self, token):
+        return self._tg.kaydet(token)
+
+    def tg_kaldir(self):
+        return self._tg.kaldir()
 
     def onay(self, req_id, karar):
         item = self._pending.get(req_id)
@@ -323,12 +372,15 @@ class Api:
 
     def durdur(self):
         self._agent.stop = True
+        self._tg.cancel_waits()
         for item in list(self._pending.values()):  # bekleyen onay varsa iptal say
             item["sonuc"] = False
             item["event"].set()
         return True
 
     def ask_confirm(self, info):
+        if self._source == "telegram" and self._tg.paired():
+            return self._tg.ask(info)  # telefondaki ✅/❌ butonlarıyla
         req_id = uuid.uuid4().hex[:8]
         ev = threading.Event()
         self._pending[req_id] = {"event": ev, "sonuc": False, "baslik": info.get("baslik", "")}
@@ -339,12 +391,14 @@ class Api:
 
     def _run(self, text):
         self._sbuf, self._stext = "", ""
+        self._pending_before = {p["id"] for p in self._pending_list()}
         _uyanik_tut(True)  # iş sürerken bilgisayar uykuya geçmesin
         try:
             reply = self._agent.chat(text)
         except requests.ConnectionError:
-            reply = ("Beynime ulaşamadım 😅 **Ollama** açık değil gibi.\n"
-                     "Başlat menüsünden Ollama'yı açıp tekrar dener misin?")
+            reply = ("Beynime ulaşamadım 😅 Yerel beyin (**Ollama**) çalışmıyor.\n"
+                     "- Ollama kuruluysa Başlat menüsünden aç\n"
+                     "- Ya da ⚙️ Ayarlar'dan **Claude anahtarı** girip beyni **Hep Claude** yap")
         except requests.HTTPError as e:
             if e.response is not None and e.response.status_code == 404:
                 reply = (f"**{self._cfg['model']}** modeli inmemiş. "
@@ -361,6 +415,29 @@ class Api:
         self._js("addMessage", "bot", reply)
         self._js("refreshHistory")
         self._js("refreshPending")
+        self._telegram_bildir(reply)
+        if self._queue:  # telefondan sıraya alınmış iş varsa devam et
+            nxt = self._queue.pop(0)
+            self._js("remoteUser", nxt)
+            self.gonder(nxt, "telegram")
+
+    def _telegram_bildir(self, reply):
+        """Telefondan gelen işin cevabını, ya da 'ben yokken' görevinin raporunu telefona gönder."""
+        if not self._tg.paired():
+            return
+        from_tg = self._source == "telegram"
+        away_done = getattr(self._agent, "away", False)
+        if not (from_tg or away_done):
+            return
+        try:
+            self._tg.send(reply if from_tg else "📋 **Görev bitti**\n\n" + reply)
+            for f in getattr(self._agent, "created_files", []):
+                self._tg.send_file(f, "📄 " + Path(f).name)
+            new = [p for p in self._pending_list() if p["id"] not in self._pending_before]
+            if new:
+                self._tg.send_pending(new)
+        except Exception as e:
+            print("Telegram'a gönderilemedi:", e)
 
     # --- pencere kontrolü ---
     def show(self):
@@ -458,6 +535,7 @@ def main():
                 time.sleep(1)
 
     threading.Thread(target=lock_listener, daemon=True).start()
+    api._tg.start()  # Telegram bağlıysa telefonu dinlemeye başla
 
     # --- sistem tepsisi ---
     def start_tray():
