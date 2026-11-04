@@ -16,6 +16,7 @@ import webview
 BASE = Path(__file__).resolve().parent
 CONFIG_PATH = BASE / "config.json"
 CHATS_DIR = BASE / "sohbetler"
+PENDING = BASE / "bekleyen_onaylar.json"
 CHATS_DIR.mkdir(exist_ok=True)
 
 DEFAULT_CONFIG = {
@@ -55,6 +56,7 @@ class Api:
         self._chat_id = None
         self._display = []  # ekranda görünen mesajlar: {"r": "user"|"bot"|"sys", "t": "..."}
         self._sbuf, self._stext, self._slast = "", "", 0.0
+        self.away = False  # "Ben yokken" düğmesi
 
     # --- JS -> Python ---
     def ayarlar(self):
@@ -272,6 +274,53 @@ class Api:
         finally:
             u32.CloseClipboard()
 
+    # --- ben yokken modu ---
+    def ben_yokken(self, acik):
+        self.away = bool(acik)
+        return self.away
+
+    def defer(self, name, args, info):
+        """Kullanıcı yokken riskli işi yapma, listeye ekle."""
+        items = self._pending_list()
+        items.append({"id": uuid.uuid4().hex[:8], "arac": name, "args": args, "baslik": info.get("baslik", name),
+                      "detay": info.get("detay", []), "zaman": time.strftime("%d.%m %H:%M")})
+        PENDING.write_text(json.dumps(items, ensure_ascii=False), encoding="utf-8")
+        self._js("refreshPending")
+
+    def _pending_list(self):
+        try:
+            return json.loads(PENDING.read_text(encoding="utf-8"))
+        except Exception:
+            return []
+
+    def bekleyenler(self):
+        return self._pending_list()
+
+    def bekleyen_karar(self, item_id, onay):
+        items = self._pending_list()
+        item = next((i for i in items if i["id"] == item_id), None)
+        if not item:
+            return {"mesaj": "Bu iş artık listede yok."}
+        items = [i for i in items if i["id"] != item_id]
+        PENDING.write_text(json.dumps(items, ensure_ascii=False), encoding="utf-8")
+        if not onay:
+            return {"mesaj": "İptal edildi: " + item["baslik"]}
+        from tools import run_tool
+        res = run_tool(item["arac"], item["args"])
+        if "hata" in res:
+            return {"mesaj": "Yapılamadı: " + str(res["hata"])}
+        return {"mesaj": "✓ Yapıldı: " + item["baslik"]}
+
+    # --- hafıza (ayarlardan düzenleme) ---
+    def hafiza_getir(self):
+        import hafiza
+        return hafiza.oku()
+
+    def hafiza_kaydet(self, text):
+        import hafiza
+        hafiza.yaz(text)
+        return True
+
     def durdur(self):
         self._agent.stop = True
         for item in list(self._pending.values()):  # bekleyen onay varsa iptal say
@@ -290,6 +339,7 @@ class Api:
 
     def _run(self, text):
         self._sbuf, self._stext = "", ""
+        _uyanik_tut(True)  # iş sürerken bilgisayar uykuya geçmesin
         try:
             reply = self._agent.chat(text)
         except requests.ConnectionError:
@@ -303,12 +353,14 @@ class Api:
                 reply = f"Bir hata oldu: {e}"
         except Exception as e:
             reply = f"Bir hata oldu: {e}"
+        _uyanik_tut(False)
         self._flush()
         self._display.append({"r": "bot", "t": reply})
         self._save()
         self._busy = False
         self._js("addMessage", "bot", reply)
         self._js("refreshHistory")
+        self._js("refreshPending")
 
     # --- pencere kontrolü ---
     def show(self):
@@ -319,6 +371,17 @@ class Api:
     def hide(self):
         if self._window:
             self._window.hide()
+
+
+def _uyanik_tut(acik: bool):
+    """Windows'a 'çalışıyorum, uykuya geçme' der (ekran kapanabilir, bilgisayar uyumaz)."""
+    if sys.platform.startswith("win"):
+        try:
+            import ctypes
+            ES_CONTINUOUS, ES_SYSTEM_REQUIRED = 0x80000000, 0x00000001
+            ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS | (ES_SYSTEM_REQUIRED if acik else 0))
+        except Exception:
+            pass
 
 
 TEK_PORT = 47391  # sadece bu bilgisayarın içinden erişilen kilit kapısı

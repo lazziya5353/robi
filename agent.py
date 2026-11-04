@@ -10,6 +10,7 @@ import uuid
 import requests
 
 import claude_beyin
+import hafiza
 
 from tools import TOOLS, ONAYLI, run_tool, describe_action, status_text
 
@@ -47,10 +48,18 @@ class Agent:
         self.brain, self._brain_note = "yerel", ""
         self.reset()
 
-    def reset(self):
+    def _system(self):
         from datetime import date
-        self.history = [{"role": "system", "content": SYSTEM.format(
-            isim=self.cfg.get("isim", "Robi"), tarih=date.today().strftime("%d.%m.%Y"))}]
+        base = SYSTEM.format(isim=self.cfg.get("isim", "Robi"), tarih=date.today().strftime("%d.%m.%Y"))
+        mem = hafiza.oku()
+        return base + ("\n\n=== HAFIZA (kullanıcının kalıcı tercihleri ve kuralları; bunlara uy) ===\n" + mem if mem else "")
+
+    def reset(self):
+        self.history = [{"role": "system", "content": self._system()}]
+
+    # "ben çıkıyorum", "dönünce bakarım", "rapor et" gibi ifadeler → ben yokken modu
+    _AWAY = re.compile(r"(?:ben )?(?:dışarı |evden )?çıkıyorum|evde (?:yokum|değilim)|dönünce|gelince bak|"
+                       r"ben yokken|rapor(?:la| et| hazırla| ver)|haber ver|bitince bana", re.I)
 
     # ---------------- hangi beyin? ----------------
     _ZOR = re.compile(r"araştır|nedir|kimdir|nasıl|neden|niye|hangi|kaç|puan|fikstür|maç|skor|haber|fiyat|kur|dolar|"
@@ -143,6 +152,13 @@ class Agent:
 
         for m in self.history:  # önceki turların ham Claude bloklarına artık gerek yok (hafıza şişmesin)
             m.pop("_claude_blocks", None)
+        self.history[0] = {"role": "system", "content": self._system()}  # hafıza değişmiş olabilir
+        self.away = bool(getattr(self.ui, "away", False) or self._AWAY.search(text))
+        if self.away:
+            self.history[-1]["content"] = (
+                "[GÖREV MODU: Kullanıcı şu an bilgisayar başında değil. Hafızadaki 'Ben yokken' kurallarına uy: "
+                "soru sorma, riskli iş yapma, işi bitir ve sonunda rapor hazırla.]\n" + text)
+            self.ui.status("Görev modunda çalışıyorum")
         self._brain_note = ""
         self.brain = self._choose_brain(text)
         self.ui.brain(self.brain, self._brain_note)
@@ -162,7 +178,8 @@ class Agent:
             return f"Yapamadım: {e}"
 
     def _loop(self) -> str:
-        for _ in range(max(int(self.cfg.get("max_adim", 8)), 14)):
+        limit = 40 if getattr(self, "away", False) else max(int(self.cfg.get("max_adim", 8)), 14)
+        for _ in range(limit):
             if self.stop:
                 raise Durduruldu()
             self._shrink()
@@ -187,7 +204,11 @@ class Agent:
                     except json.JSONDecodeError:
                         args = {}
 
-                if name in ONAYLI:
+                if name in ONAYLI and getattr(self, "away", False):
+                    self.ui.defer(name, args, describe_action(name, args))
+                    result = {"ertelendi": "Kullanıcı yokken riskli işlem yapılmaz. Onay listesine eklendi; kullanıcı dönünce "
+                                           "onaylayacak. Raporda 'onay bekleyen işler' altında belirt."}
+                elif name in ONAYLI:
                     ok = self.ui.ask_confirm(describe_action(name, args))
                     if self.stop:
                         raise Durduruldu()

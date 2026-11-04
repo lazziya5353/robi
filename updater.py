@@ -18,7 +18,8 @@ SECRET = BASE / "gizli.json"
 VERSION = BASE / "surum.txt"
 VARSAYILAN_REPO = "lazziya5353/robi"  # GitHub reposu: "kullanici/robi"
 KORUNAN = {"config.json", "gizli.json", "surum.txt", "sohbetler", "__pycache__", ".git",
-           "yedek", "yeni_guncelleme", "hata.log", "atla.txt", "kisayol.ok", "robi.ico", "harcama.json"}
+           "yedek", "yeni_guncelleme", "hata.log", "atla.txt", "kisayol.ok", "robi.ico", "harcama.json",
+           "hafiza.md", "bekleyen_onaylar.json"}
 BACKUP = BASE / "yedek"
 FRESH = BASE / "yeni_guncelleme"
 SKIP = BASE / "atla.txt"

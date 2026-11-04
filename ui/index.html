@@ -78,6 +78,24 @@
   .hint2 { font-size: 11.5px; color: var(--muted); margin-top: 5px; } .hint2.ok { color: var(--ok); } .hint2.err { color: var(--no); }
   .meter { height: 7px; background: var(--bg); border-radius: 99px; overflow: hidden; margin-top: 7px; }
   .meter div { height: 100%; background: linear-gradient(90deg, var(--accent2), var(--accent)); border-radius: 99px; }
+  .awaybtn { display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 11px; margin-right: 6px; border-radius: 10px;
+    border: 1px solid var(--line); background: none; color: var(--muted); font: 600 12.5px "Segoe UI", system-ui, sans-serif; cursor: pointer; white-space: nowrap; }
+  .awaybtn:hover { color: var(--text); border-color: #3a3f52; }
+  .awaybtn.on { background: #13261f; color: #5fe3ad; border-color: #1f5a40; }
+  #awaybar { display: none; margin: 10px 16px 0; padding: 9px 12px; border-radius: 12px; background: #10211b; border: 1px solid #1f5a40;
+    color: #a6f0cf; font-size: 12.5px; }
+  body.away #awaybar { display: block; }
+  #pending { display: none; margin: 10px 16px 0; padding: 11px 13px; border-radius: 12px; background: var(--warnbg); border: 1px solid #5a4520; }
+  #pending.show { display: block; }
+  #pending .ph { font-weight: 700; color: var(--warn); font-size: 13px; margin-bottom: 7px; }
+  .pi { display: flex; gap: 8px; align-items: center; padding: 7px 0; border-top: 1px dashed #4a3a1c; font-size: 12.5px; }
+  .pi:first-of-type { border-top: none; }
+  .pi .pt { flex: 1; min-width: 0; } .pi .pt small { display: block; color: #bfae8a; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pi button { border: none; border-radius: 8px; padding: 6px 10px; font: 600 12px "Segoe UI", system-ui, sans-serif; cursor: pointer; }
+  .pi .ok { background: var(--ok); color: #062b1c; } .pi .no { background: #2c303f; color: var(--text); }
+  .mbox textarea { width: 100%; min-height: 190px; resize: vertical; background: var(--bg); border: 1px solid var(--line); border-radius: 9px;
+    padding: 9px 11px; color: var(--text); font: 12.5px/1.5 Consolas, "Cascadia Mono", monospace; outline: none; }
+  .mbox textarea:focus { border-color: var(--accent); }
   .msg.sys { align-self: center; font-size: 12px; color: var(--muted); background: none; padding: 2px 8px; }
   header {
     display: flex; align-items: center; gap: 12px; padding: 14px 16px;
@@ -197,6 +215,7 @@
     <b id="name">Robi</b><span class="bchip" id="bchip" style="display:none"></span>
     <div class="state"><span class="dot" id="dot"></span><span id="stateText">Hazır</span></div>
   </div>
+  <button class="awaybtn" id="awaybtn" onclick="toggleAway()" title="Evden çıkarken aç: Robi soru sormadan işi bitirir, sonunda rapor hazırlar">🚶 <span>Ben yokken</span></button>
   <button class="iconbtn" title="Ayarlar" onclick="openSettings()" style="margin-right:6px">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
   </button>
@@ -206,6 +225,8 @@
 </header>
 
 <div id="upd"></div>
+<div id="awaybar">🚶 <b>Ben yokken modu açık.</b> Robi soru sormadan işi bitirir, riskli işleri (silme, kaldırma, kapatma) onay listesine koyar, sonunda <b>Belgeler\Robi Raporları</b>'na rapor kaydeder. Bilgisayar uykuya geçmez.</div>
+<div id="pending"></div>
 <div class="warnbar" id="warnbar"></div>
 <div id="chat"></div>
 
@@ -349,6 +370,7 @@ function fillSettings(c) {
   kh.className = 'hint2' + (c.anahtar_var ? ' ok' : ''); kh.textContent = c.anahtar_var ? '✓ Anahtar kayıtlı' : 'console.anthropic.com → API Keys → Create Key';
   document.getElementById('alimit').value = c.aylik_limit_usd;
   document.getElementById('webara').checked = !!c.claude_web_arama;
+  if (window.pywebview) pywebview.api.hafiza_getir().then(t => { document.getElementById('hafiza').value = t; });
   const pct = c.aylik_limit_usd > 0 ? Math.min(100, c.harcama_usd / c.aylik_limit_usd * 100) : 100;
   document.getElementById('spend').textContent = `Bu ay: $${c.harcama_usd.toFixed(4)} · ${c.istek} istek · sınırın %${pct.toFixed(1)}'i`;
   document.getElementById('meter').style.width = pct + '%';
@@ -366,7 +388,10 @@ function readSettings() {
            aylik_limit_usd: document.getElementById('alimit').value,
            claude_web_arama: document.getElementById('webara').checked };
 }
-async function saveSettings() { fillSettings(await pywebview.api.ayar_kaydet(readSettings())); closeSettings(); }
+async function saveSettings() {
+  await pywebview.api.hafiza_kaydet(document.getElementById('hafiza').value);
+  fillSettings(await pywebview.api.ayar_kaydet(readSettings())); closeSettings();
+}
 async function testKey() {
   const kh = document.getElementById('khint');
   kh.className = 'hint2'; kh.textContent = '⏳ Deniyorum…';
@@ -374,6 +399,34 @@ async function testKey() {
   const r = await pywebview.api.anahtar_test();
   fillSettings(await pywebview.api.ayar_getir());  // test isteğinin harcamasını da göster
   kh.className = 'hint2 ' + (r.ok ? 'ok' : 'err'); kh.textContent = r.mesaj;
+}
+
+// ---------------- ben yokken + onay bekleyenler ----------------
+async function toggleAway() {
+  const on = !document.body.classList.contains('away');
+  if (window.pywebview) await pywebview.api.ben_yokken(on);
+  document.body.classList.toggle('away', on);
+  document.getElementById('awaybtn').classList.toggle('on', on);
+  try { localStorage.setItem('robiAway', on ? '1' : ''); } catch (e) {}
+}
+async function refreshPending() {
+  if (!window.pywebview) return;
+  const items = await pywebview.api.bekleyenler();
+  const box = document.getElementById('pending');
+  if (!items.length) { box.className = ''; box.innerHTML = ''; return; }
+  box.className = 'show';
+  box.innerHTML = `<div class="ph">⏳ Sen yokken onay bekleyen işler (${items.length})</div>` + items.map(i =>
+    `<div class="pi" data-id="${esc(i.id)}"><div class="pt">${esc(i.baslik)}<small title="${esc((i.detay || []).join(', '))}">${esc(i.zaman)} · ${esc((i.detay || []).join(', '))}</small></div>
+     <button class="ok">Onayla</button><button class="no">İptal</button></div>`).join('');
+  box.querySelectorAll('.pi').forEach(row => {
+    const act = async ok => {
+      row.querySelectorAll('button').forEach(b => b.disabled = true);
+      const r = await pywebview.api.bekleyen_karar(row.dataset.id, ok);
+      addMessage('sys', r.mesaj); refreshPending();
+    };
+    row.querySelector('.ok').onclick = () => act(true);
+    row.querySelector('.no').onclick = () => act(false);
+  });
 }
 
 // ---------------- güncelleme ----------------
@@ -529,6 +582,8 @@ async function init() {
   document.getElementById('hint').textContent = a.kisayol.replace(/\b\w/g, c => c.toUpperCase()) + ' ile her yerden aç · Kapatınca arka planda çalışır';
   welcome();
   refreshHistory();
+  refreshPending();
+  try { if (localStorage.getItem('robiAway')) toggleAway(); } catch (e) {}
   pywebview.api.guncelleme_kontrol().then(showUpdate);
   pywebview.api.ayar_getir().then(c => { cfgCache = c; const w = chat.querySelector('.welcome');
     if (w && c.beyin !== 'yerel' && !c.anahtar_var) w.insertAdjacentHTML('beforeend',
@@ -551,6 +606,9 @@ input.focus();
       <label class="opt"><input type="radio" name="beyin" value="yerel"><div><b>Sadece yerel</b><small>Tamamen ücretsiz, internetsiz çalışır</small></div></label>
     </div></div>
     <div class="fld"><label>CLAUDE MODELİ</label><div class="opts" id="mlist"></div></div>
+    <div class="fld"><label>ROBİ'NİN HAFIZASI</label>
+      <textarea id="hafiza" spellcheck="false"></textarea>
+      <div class="hint2">Robi bunu her mesajda okur. Tercihlerini, kurallarını buraya yaz. Sohbette "bunu hatırla" dersen kendisi de ekler.</div></div>
     <div class="fld"><label>YEDEK ARAMA</label>
       <label class="opt"><input type="checkbox" id="webara"><div><b>Claude'un resmi web araması</b><small>Ücretsiz arama sonuç getiremezse devreye girer · arama başına $0.01 (~40 kuruş)</small></div></label></div>
     <div class="fld"><label>CLAUDE API ANAHTARI</label>

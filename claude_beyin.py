@@ -232,7 +232,7 @@ def sor(cfg, history, tools, on_text, should_stop, on_status=lambda s: None):
     system, messages = _messages(history)
     body = {
         "model": model,
-        "max_tokens": 2048,
+        "max_tokens": int(cfg.get("claude_max_tokens", 8000)),  # uzun rapor/Word içerikleri kesilmesin
         "system": system,
         "messages": messages,
         "thinking": {"type": "disabled"},

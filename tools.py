@@ -31,7 +31,16 @@ HOME = Path.home()
 
 def _known_folder(name: str) -> Path:
     """'masaüstü', 'indirilenler' gibi Türkçe adları gerçek klasöre çevirir."""
-    n = (name or "").strip().lower()
+    raw = (name or "").strip().replace("\\", "/")
+    n = raw.lower()
+    if n in ("raporlar", "robi raporları", "robi raporlari", "rapor"):
+        return _known_folder("belgeler") / "Robi Raporları"
+    # "belgeler/Robi Raporları" gibi: ilk parça takma ad, gerisi alt klasör
+    if "/" in raw and not os.path.isabs(raw) and not raw.startswith("~"):
+        head, rest = raw.split("/", 1)
+        if head.lower() in {"masaüstü", "masaustu", "desktop", "indirilenler", "downloads", "belgeler", "documents",
+                            "belgelerim", "resimler", "pictures", "videolar", "videos", "müzik", "muzik", "music", "ev"}:
+            return _known_folder(head) / rest
     aliases = {
         ("masaüstü", "masaustu", "desktop"): ["Desktop", "OneDrive/Desktop", "OneDrive/Masaüstü", "Masaüstü"],
         ("indirilenler", "downloads", "indirmeler"): ["Downloads", "İndirilenler"],
@@ -825,7 +834,7 @@ def _t(name, desc, props=None, required=None):
         "parameters": {"type": "object", "properties": props or {}, "required": required or []}}}
 
 
-_KLASOR = {"type": "string", "description": "Klasör: 'masaüstü', 'indirilenler', 'belgeler', 'resimler', 'videolar', 'ev' ya da tam yol"}
+_KLASOR = {"type": "string", "description": "Klasör: 'masaüstü', 'indirilenler', 'belgeler', 'raporlar' (Belgeler/Robi Raporları), 'resimler', 'videolar', 'ev', 'belgeler/AltKlasör' ya da tam yol"}
 _YOLLAR = {"type": "array", "items": {"type": "string"}, "description": "Dosya/klasörlerin tam yolları"}
 
 TOOLS = [
@@ -840,6 +849,7 @@ TOOLS = [
     _t("zamanli_kapat", "Bilgisayarı belirtilen dakika sonra kapatır (onay otomatik istenir). iptal=true ise ayarlı kapatmayı iptal eder.", {"dakika": {"type": "integer"}, "iptal": {"type": "boolean"}}),
     _t("not_kaydet", "Yazıyı yeni bir .txt dosyasına kaydeder ve Not Defteri'nde açar. Var olan dosyanın üstüne yazmaz. 'icerik' tam ve düzenli metin olmalı.", {"baslik": {"type": "string", "description": "Dosya adı, örn 'Süper Lig puan durumu'"}, "icerik": {"type": "string"}, "klasor": _KLASOR, "ac": {"type": "boolean"}}, ["baslik", "icerik"]),
     _t("arastir", "GÜNCEL BİLGİ İÇİN İLK TERCİH. İnternette arar, en iyi 3 sayfayı okur ve soruyla ilgili kısımları getirir. Puan durumu, fikstür, maç sonucu, haber, fiyat, hava, kur vb.", {"soru": {"type": "string", "description": "Kullanıcının sorusu"}, "arama": {"type": "string", "description": "Arama motoruna yazılacak kısa sorgu, örn 'şampiyonlar ligi puan durumu 2026-27'"}}, ["soru"]),
+    _t("hafizaya_ekle", "Kullanıcı 'bunu hatırla / aklında tut / unutma' derse ya da kalıcı bir tercihini söylerse kısa bir cümleyle hafızaya ekler.", {"bilgi": {"type": "string"}}, ["bilgi"]),
     _t("word_kaydet", "Düzenli bir Word (.docx) belgesi oluşturur ve açar. 'icerik' markdown gibi yazılır: '# Başlık', '## Alt başlık', '- madde', '| tablo | satırı |', '**kalın**'. Var olan dosyanın üstüne yazmaz.", {"baslik": {"type": "string"}, "icerik": {"type": "string"}, "klasor": _KLASOR, "ac": {"type": "boolean"}}, ["baslik", "icerik"]),
     _t("web_ara", "İnternette arama yapar; başlık, adres ve kısa özet döner. Güncel bilgi (puan durumu, fikstür, haber, fiyat, hava) için ilk adım.", {"arama": {"type": "string"}, "adet": {"type": "integer"}}, ["arama"]),
     _t("sayfa_oku", "Bir web sayfasına girip yazısını ve tablolarını okur. 'odak' verilirse sayfanın o kelimenin geçtiği kısmından başlar. Uzun sayfalarda 'baslangic' ile devamını okursun.", {"adres": {"type": "string"}, "odak": {"type": "string", "description": "Sayfada aranacak kelime, örn 'Puan durumu'"}, "baslangic": {"type": "integer"}}, ["adres"]),
@@ -859,6 +869,7 @@ _FUNCS = {
     "uygulama_ac": uygulama_ac, "web_ac": web_ac, "gecici_dosya_boyutu": gecici_dosya_boyutu,
     "youtube_ara": youtube_ara, "youtube_ac": youtube_ac,
     "web_ara": web_ara, "sayfa_oku": sayfa_oku, "arastir": arastir, "not_kaydet": not_kaydet, "word_kaydet": word_kaydet,
+    "hafizaya_ekle": lambda bilgi: {"tamam": __import__("hafiza").ekle(bilgi)},
     "ses_medya": ses_medya, "zamanli_kapat": zamanli_kapat,
     "calisan_programlar": calisan_programlar, "dosya_sil": dosya_sil, "dosya_tasi": dosya_tasi,
     "uygulama_kaldir": uygulama_kaldir, "gecici_dosyalari_temizle": gecici_dosyalari_temizle,
@@ -873,7 +884,7 @@ _STATUS = {
     "web_ac": "Siteyi açıyorum", "gecici_dosya_boyutu": "Geçici dosyaları ölçüyorum",
     "calisan_programlar": "Çalışan programlara bakıyorum",
     "youtube_ara": "YouTube'da arıyorum", "youtube_ac": "YouTube'u açıyorum",
-    "web_ara": "İnternette arıyorum", "arastir": "Araştırıyorum, sayfaları okuyorum", "sayfa_oku": "Sayfayı okuyorum", "not_kaydet": "Not defterine yazıyorum", "word_kaydet": "Word belgesi hazırlıyorum",
+    "web_ara": "İnternette arıyorum", "arastir": "Araştırıyorum, sayfaları okuyorum", "sayfa_oku": "Sayfayı okuyorum", "not_kaydet": "Not defterine yazıyorum", "word_kaydet": "Word belgesi hazırlıyorum", "hafizaya_ekle": "Hafızama yazıyorum",
 }
 
 
