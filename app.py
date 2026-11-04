@@ -370,6 +370,16 @@ class Api:
         hafiza.yaz(text)
         return True
 
+    def bildir(self, text):
+        """Arka planda biten işler (örn. virüs taraması) için haber: pencereye + Telegram'a."""
+        self._display.append({"r": "bot", "t": text})
+        self._save()
+        self._js("notify", text)
+        try:
+            self._tg.send(text)
+        except Exception:
+            pass
+
     def durdur(self):
         self._agent.stop = True
         self._tg.cancel_waits()
@@ -497,6 +507,8 @@ def main():
     kimlik.ensure_icon()
     cfg = load_config()
     api = Api(cfg)
+    import tools
+    tools.BILDIR = api.bildir
     state = {"quitting": False}
     threading.Thread(target=kimlik.create_shortcuts, args=(cfg["isim"],), daemon=True).start()
 

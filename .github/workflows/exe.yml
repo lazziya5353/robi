@@ -3,11 +3,15 @@ name: Robi Kurulum (.exe)
 on:
   push:
     branches: [main]
-    paths: ["kurulum/SURUM"]   # yeni kurulum dosyası için bu dosyadaki sürümü artır
+    paths: ["kurulum/SURUM", ".github/workflows/exe.yml"]   # yeni kurulum dosyası için SURUM'u artır
   workflow_dispatch:
 
 permissions:
   contents: write
+
+env:
+  PYTHONUTF8: "1"          # Windows konsolunda Türkçe karakterler hata vermesin
+  PYTHONIOENCODING: utf-8
 
 jobs:
   derle:

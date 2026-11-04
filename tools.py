@@ -11,6 +11,7 @@ import sys
 import glob
 import shutil
 import subprocess
+import time
 import webbrowser
 from datetime import datetime
 from pathlib import Path
@@ -337,6 +338,123 @@ def web_ac(adres: str):
         adres = "https://" + adres
     webbrowser.open(adres)
     return {"tamam": f"{adres} varsayılan TARAYICIDA açıldı (uygulamada değil)."}
+
+
+# --------------------------- Virüs taraması (Windows Defender) ---------------------------
+
+BILDIR = None  # app tarafından atanır: arka planda biten işleri kullanıcıya haber verir
+_SCAN = {"proc": None, "tur": "", "basla": 0}
+
+
+def _ps_json(cmd: str, timeout=60):
+    """PowerShell komutunu çalıştırıp JSON sonucunu döner."""
+    import json
+    r = subprocess.run(["powershell", "-NoProfile", "-Command", cmd + " | ConvertTo-Json -Depth 3 -Compress"],
+                       capture_output=True, text=True, timeout=timeout, creationflags=_NO_WINDOW)
+    out = (r.stdout or "").strip()
+    if not out:
+        return None, (r.stderr or "").strip()[:300]
+    try:
+        return json.loads(out), ""
+    except Exception:
+        return None, out[:300]
+
+
+def _defender_exe():
+    import glob
+    plat = sorted(glob.glob(os.path.join(os.environ.get("ProgramData", "C:/ProgramData"),
+                                         "Microsoft", "Windows Defender", "Platform", "*", "MpCmdRun.exe")))
+    if plat:
+        return plat[-1]  # en güncel sürüm
+    p = os.path.join(os.environ.get("ProgramFiles", "C:/Program Files"), "Windows Defender", "MpCmdRun.exe")
+    return p if os.path.exists(p) else None
+
+
+def _tehditler():
+    data, err = _ps_json("Get-MpThreat | Select-Object ThreatName,SeverityID,IsActive,DidThreatExecute,Resources")
+    if data is None:
+        return [], err
+    items = data if isinstance(data, list) else [data]
+    sev = {1: "düşük", 2: "orta", 4: "yüksek", 5: "ciddi"}
+    return [{"tehdit": t.get("ThreatName"), "önem": sev.get(t.get("SeverityID"), t.get("SeverityID")),
+             "hala_aktif": t.get("IsActive"), "dosyalar": (t.get("Resources") or [])[:5]} for t in items], ""
+
+
+def virus_durumu():
+    if not IS_WINDOWS:
+        return {"hata": "Bu araç sadece Windows'ta çalışır."}
+    st, err = _ps_json("Get-MpComputerStatus | Select-Object AMRunningMode,AntivirusEnabled,RealTimeProtectionEnabled,"
+                       "AntivirusSignatureLastUpdated,QuickScanEndTime,FullScanEndTime")
+    res = {}
+    if st:
+        def d(x):
+            import re
+            m = re.search(r"/Date\((\d+)", str(x or ""))
+            return datetime.fromtimestamp(int(m.group(1)) / 1000).strftime("%d.%m.%Y %H:%M") if m else (x or "hiç")
+        res["koruma"] = {
+            "mod": st.get("AMRunningMode"), "antivirüs_açık": st.get("AntivirusEnabled"),
+            "gerçek_zamanlı_koruma": st.get("RealTimeProtectionEnabled"),
+            "virüs_tanımları_güncellendi": d(st.get("AntivirusSignatureLastUpdated")),
+            "son_hızlı_tarama": d(st.get("QuickScanEndTime")), "son_tam_tarama": d(st.get("FullScanEndTime"))}
+        if st.get("AMRunningMode") and st.get("AMRunningMode") != "Normal":
+            res["not"] = "Windows Defender pasif modda; büyük ihtimalle başka bir antivirüs programı kurulu."
+    else:
+        res["koruma_hatası"] = err or "Defender durumu okunamadı."
+    threats, terr = _tehditler()
+    res["bulunan_tehditler"] = threats if threats else "Kayıtlı tehdit yok"
+    if _SCAN["proc"] and _SCAN["proc"].poll() is None:
+        res["süren_tarama"] = f"{_SCAN['tur']} tarama {int((time.time() - _SCAN['basla']) / 60)} dakikadır sürüyor"
+    return res
+
+
+def virus_tara(tur: str = "hizli"):
+    """Windows Defender taramasını arka planda başlatır; bitince BILDIR ile haber verir."""
+    import threading
+    if not IS_WINDOWS:
+        return {"hata": "Bu araç sadece Windows'ta çalışır."}
+    if _SCAN["proc"] and _SCAN["proc"].poll() is None:
+        return {"bilgi": f"Zaten bir {_SCAN['tur']} tarama sürüyor ({int((time.time() - _SCAN['basla']) / 60)} dk). Bitince haber vereceğim."}
+    exe = _defender_exe()
+    if not exe:
+        return {"hata": "Windows Defender bulunamadı (başka bir antivirüs kurulu olabilir)."}
+    tam = str(tur).lower().startswith(("tam", "full", "komple"))
+    ad = "tam" if tam else "hızlı"
+    proc = subprocess.Popen([exe, "-Scan", "-ScanType", "2" if tam else "1"], stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, creationflags=_NO_WINDOW)
+    _SCAN.update(proc=proc, tur=ad, basla=time.time())
+
+    def bekle():
+        try:
+            import ctypes
+            ctypes.windll.kernel32.SetThreadExecutionState(0x80000000 | 0x00000001)  # tarama bitene kadar uyuma
+        except Exception:
+            pass
+        out = proc.communicate()[0] or b""
+        dk = int((time.time() - _SCAN["basla"]) / 60)
+        threats, _ = _tehditler()
+        aktif = [t for t in threats if t.get("hala_aktif")]
+        if proc.returncode == 0 and not aktif:
+            msg = f"🛡️ **{ad.capitalize()} virüs taraması bitti** ({dk} dk): tehdit bulunmadı ✅"
+        elif threats:
+            liste = "\n".join(f"- **{t['tehdit']}** ({t['önem']}){' — hâlâ aktif ⚠️' if t.get('hala_aktif') else ' — temizlendi'}"
+                              for t in threats[:10])
+            msg = f"🛡️ **{ad.capitalize()} virüs taraması bitti** ({dk} dk). Windows Defender şunları buldu:\n{liste}\n" \
+                  "Temizleme işini Windows Defender yapıyor; detay için Windows Güvenliği → Virüs ve tehdit koruması."
+        else:
+            text = out.decode("utf-8", "ignore")[-300:]
+            msg = f"🛡️ {ad.capitalize()} tarama bitti ama sonuç net değil (kod {proc.returncode}). {text}"
+        try:
+            import ctypes
+            ctypes.windll.kernel32.SetThreadExecutionState(0x80000000)
+        except Exception:
+            pass
+        if BILDIR:
+            BILDIR(msg)
+
+    threading.Thread(target=bekle, daemon=True).start()
+    sure = "1-3 saat (bilgisayarın hızına göre)" if tam else "5-15 dakika"
+    return {"tamam": f"Windows Defender {ad} tarama başladı. Yaklaşık {sure} sürer; bitince sana (Telegram bağlıysa telefonuna da) haber vereceğim. "
+                     "Bu sırada Robi'ye başka işler verebilirsin."}
 
 
 # --------------------------- Ses, medya, güç ---------------------------
@@ -845,6 +963,8 @@ TOOLS = [
     _t("uygulamalari_listele", "Bilgisayarda kurulu uygulamaları listeler (ad, yayıncı, kurulum tarihi, boyut)."),
     _t("uygulama_ac", "Bir programı ya da görev çubuğu/başlat menüsündeki uygulamayı açar. Örn: 'chrome', 'spotify', 'YouTube', 'WhatsApp'.", {"ad": {"type": "string"}}, ["ad"]),
     _t("web_ac", "Varsayılan TARAYICIDA bir web sitesi açar. YouTube için bunu değil youtube_ac'ı kullan.", {"adres": {"type": "string"}}, ["adres"]),
+    _t("virus_durumu", "Windows Defender'ın durumunu (koruma açık mı, tanımlar güncel mi, son tarama ne zaman) ve bulunan tehditleri gösterir.", {}),
+    _t("virus_tara", "Windows Defender ile virüs taraması başlatır (arka planda sürer, bitince kullanıcıya haber verilir). tur: 'hizli' (5-15 dk) ya da 'tam' (saatler sürer; 'komple tara' denirse).", {"tur": {"type": "string", "enum": ["hizli", "tam"]}}),
     _t("ses_medya", "Ses ve medya kontrolü. islem: 'ac'/'kis' (deger=yüzde kadar), 'yuzde' (deger=hedef ses), 'sessiz', 'oynat' (durdur/devam), 'sonraki', 'onceki', 'kilitle' (bilgisayarı kilitler).", {"islem": {"type": "string", "enum": ["ac", "kis", "yuzde", "sessiz", "oynat", "sonraki", "onceki", "kilitle"]}, "deger": {"type": "integer"}}, ["islem"]),
     _t("zamanli_kapat", "Bilgisayarı belirtilen dakika sonra kapatır (onay otomatik istenir). iptal=true ise ayarlı kapatmayı iptal eder.", {"dakika": {"type": "integer"}, "iptal": {"type": "boolean"}}),
     _t("not_kaydet", "Yazıyı yeni bir .txt dosyasına kaydeder ve Not Defteri'nde açar. Var olan dosyanın üstüne yazmaz. 'icerik' tam ve düzenli metin olmalı.", {"baslik": {"type": "string", "description": "Dosya adı, örn 'Süper Lig puan durumu'"}, "icerik": {"type": "string"}, "klasor": _KLASOR, "ac": {"type": "boolean"}}, ["baslik", "icerik"]),
@@ -871,6 +991,7 @@ _FUNCS = {
     "web_ara": web_ara, "sayfa_oku": sayfa_oku, "arastir": arastir, "not_kaydet": not_kaydet, "word_kaydet": word_kaydet,
     "hafizaya_ekle": lambda bilgi: {"tamam": __import__("hafiza").ekle(bilgi)},
     "ses_medya": ses_medya, "zamanli_kapat": zamanli_kapat,
+    "virus_durumu": virus_durumu, "virus_tara": virus_tara,
     "calisan_programlar": calisan_programlar, "dosya_sil": dosya_sil, "dosya_tasi": dosya_tasi,
     "uygulama_kaldir": uygulama_kaldir, "gecici_dosyalari_temizle": gecici_dosyalari_temizle,
 }
@@ -884,7 +1005,7 @@ _STATUS = {
     "web_ac": "Siteyi açıyorum", "gecici_dosya_boyutu": "Geçici dosyaları ölçüyorum",
     "calisan_programlar": "Çalışan programlara bakıyorum",
     "youtube_ara": "YouTube'da arıyorum", "youtube_ac": "YouTube'u açıyorum",
-    "web_ara": "İnternette arıyorum", "arastir": "Araştırıyorum, sayfaları okuyorum", "sayfa_oku": "Sayfayı okuyorum", "not_kaydet": "Not defterine yazıyorum", "word_kaydet": "Word belgesi hazırlıyorum", "hafizaya_ekle": "Hafızama yazıyorum",
+    "web_ara": "İnternette arıyorum", "arastir": "Araştırıyorum, sayfaları okuyorum", "sayfa_oku": "Sayfayı okuyorum", "not_kaydet": "Not defterine yazıyorum", "word_kaydet": "Word belgesi hazırlıyorum", "hafizaya_ekle": "Hafızama yazıyorum", "virus_durumu": "Windows Defender'a bakıyorum", "virus_tara": "Virüs taramasını başlatıyorum",
 }
 
 

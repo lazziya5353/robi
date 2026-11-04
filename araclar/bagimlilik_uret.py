@@ -39,7 +39,7 @@ def main():
         "için PyInstaller onların kullandığı kütüphaneleri göremez. Bu liste onları exe'ye dahil ettirir.\n"
         "Fonksiyon hiç çağrılmaz. Derlemeden önce araclar/bagimlilik_uret.py ile otomatik üretilir.\n\"\"\"\n\n\n"
         f"def _liste():\n{body}\n", encoding="utf-8")
-    print(f"{len(keep)} modül yazıldı")
+    print(f"{len(keep)} modules written")
 
 
 if __name__ == "__main__":
