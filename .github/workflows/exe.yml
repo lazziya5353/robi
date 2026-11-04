@@ -2,7 +2,8 @@ name: Robi Kurulum (.exe)
 
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
+    paths: ["kurulum/SURUM"]   # yeni kurulum dosyası için bu dosyadaki sürümü artır
   workflow_dispatch:
 
 permissions:
@@ -62,7 +63,8 @@ jobs:
       - name: Kurulum dosyasını oluştur (Inno Setup)
         shell: pwsh
         run: |
-          $ver = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}".TrimStart("v") } else { "0.0.0" }
+          $ver = (Get-Content kurulum/SURUM -Raw).Trim()
+          "ROBI_VER=$ver" | Out-File -FilePath $env:GITHUB_ENV -Append
           if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) { choco install innosetup -y --no-progress }
           $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
           if (-not $iscc) { $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" }
@@ -74,11 +76,13 @@ jobs:
           path: Output/RobiKurulum.exe
 
       - name: GitHub Releases'a koy
-        if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
           files: Output/RobiKurulum.exe
-          name: Robi ${{ github.ref_name }}
+          tag_name: v${{ env.ROBI_VER }}
+          target_commitish: ${{ github.sha }}
+          name: Robi v${{ env.ROBI_VER }}
+          make_latest: true
           body: |
             **Robi Kurulum** — çift tıkla, kur, Robi açılsın.
 
