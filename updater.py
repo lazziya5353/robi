@@ -18,7 +18,7 @@ SECRET = BASE / "gizli.json"
 VERSION = BASE / "surum.txt"
 VARSAYILAN_REPO = "lazziya5353/robi"  # GitHub reposu: "kullanici/robi"
 KORUNAN = {"config.json", "gizli.json", "surum.txt", "sohbetler", "__pycache__", ".git",
-           "yedek", "yeni_guncelleme", "hata.log", "atla.txt", "kisayol.ok", "robi.ico"}
+           "yedek", "yeni_guncelleme", "hata.log", "atla.txt", "kisayol.ok", "robi.ico", "harcama.json"}
 BACKUP = BASE / "yedek"
 FRESH = BASE / "yeni_guncelleme"
 SKIP = BASE / "atla.txt"
@@ -32,7 +32,12 @@ def _token():
 
 
 def token_kaydet(token: str):
-    SECRET.write_text(json.dumps({"github_token": token.strip()}), encoding="utf-8")
+    try:
+        d = json.loads(SECRET.read_text(encoding="utf-8"))
+    except Exception:
+        d = {}
+    d["github_token"] = token.strip()  # diğer anahtarları (Claude) silmeden güncelle
+    SECRET.write_text(json.dumps(d), encoding="utf-8")
 
 
 def _headers():

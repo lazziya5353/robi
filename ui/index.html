@@ -56,6 +56,28 @@
     color: var(--text); font: inherit; font-size: 12.5px; outline: none; }
   #upd button { border: none; border-radius: 8px; padding: 7px 12px; font: inherit; font-weight: 600; cursor: pointer; }
   #upd .ub { background: var(--accent); color: #fff; } #upd .ux { background: none; color: var(--muted); padding: 7px 6px; }
+  .bchip { font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 999px; margin-left: 6px; vertical-align: 2px;
+    background: #1e2230; color: var(--muted); border: 1px solid var(--line); }
+  .bchip.claude { background: #2a1d14; color: #ffb27a; border-color: #5a3a22; }
+  #modal { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: none; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
+  #modal.show { display: flex; }
+  .mbox { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; width: 100%; max-width: 420px; max-height: 92vh; overflow-y: auto; padding: 18px; }
+  .mbox h3 { font-size: 16px; margin-bottom: 14px; display: flex; align-items: center; justify-content: space-between; }
+  .mbox h3 button { background: none; border: none; color: var(--muted); font-size: 18px; cursor: pointer; }
+  .fld { margin-bottom: 14px; } .fld > label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; font-weight: 600; letter-spacing: .3px; }
+  .opts { display: flex; flex-direction: column; gap: 6px; }
+  .opt { display: flex; gap: 10px; align-items: flex-start; padding: 9px 11px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; font-size: 13px; }
+  .opt:has(input:checked) { border-color: var(--accent); background: #1d1a33; }
+  .opt input { margin-top: 3px; accent-color: var(--accent); } .opt small { display: block; color: var(--muted); font-size: 11.5px; margin-top: 1px; }
+  .mbox input[type=password], .mbox input[type=number] { width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: 9px; padding: 9px 11px;
+    color: var(--text); font: inherit; font-size: 13px; outline: none; }
+  .mbox input:focus { border-color: var(--accent); }
+  .keyrow { display: flex; gap: 6px; } .keyrow input { flex: 1; }
+  .sbtn { border: none; border-radius: 9px; padding: 9px 13px; font: inherit; font-weight: 600; cursor: pointer; background: #262a38; color: var(--text); white-space: nowrap; }
+  .sbtn.pri { background: var(--accent); color: #fff; width: 100%; padding: 11px; }
+  .hint2 { font-size: 11.5px; color: var(--muted); margin-top: 5px; } .hint2.ok { color: var(--ok); } .hint2.err { color: var(--no); }
+  .meter { height: 7px; background: var(--bg); border-radius: 99px; overflow: hidden; margin-top: 7px; }
+  .meter div { height: 100%; background: linear-gradient(90deg, var(--accent2), var(--accent)); border-radius: 99px; }
   .msg.sys { align-self: center; font-size: 12px; color: var(--muted); background: none; padding: 2px 8px; }
   header {
     display: flex; align-items: center; gap: 12px; padding: 14px 16px;
@@ -165,9 +187,12 @@
       <circle cx="12" cy="3" r="1.4" fill="#00dcb4"/></svg>
   </div>
   <div class="who">
-    <b id="name">Robi</b>
+    <b id="name">Robi</b><span class="bchip" id="bchip" style="display:none"></span>
     <div class="state"><span class="dot" id="dot"></span><span id="stateText">Hazır</span></div>
   </div>
+  <button class="iconbtn" title="Ayarlar" onclick="openSettings()" style="margin-right:6px">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+  </button>
   <button class="iconbtn" title="Yeni sohbet" onclick="newChat()">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
   </button>
@@ -260,6 +285,50 @@ function addMessage(role, text) {
   d.innerHTML = role === 'bot' ? md(text) : esc(text).replace(/\n/g, '<br>');
   chat.appendChild(d); scroll();
   if (role === 'bot' && !restoring) setBusy(false);
+}
+
+// ---------------- beyin göstergesi + ayarlar ----------------
+function setBrain(name, label, note) {
+  const c = document.getElementById('bchip');
+  c.style.display = ''; c.className = 'bchip' + (name === 'claude' ? ' claude' : '');
+  c.textContent = name === 'claude' ? '✦ ' + label.replace('Claude ', '') : '🖥 Yerel';
+  c.title = label;
+  if (note && name === 'yerel' && cfgCache && cfgCache.beyin !== 'yerel' && !/girilmemiş/.test(note)) addMessage('sys', 'ℹ️ ' + note + ' — yerel beyinle devam ediyorum');
+}
+let cfgCache = null;
+function fillSettings(c) {
+  cfgCache = c;
+  document.querySelectorAll('input[name=beyin]').forEach(r => r.checked = r.value === c.beyin);
+  document.getElementById('mlist').innerHTML = c.modeller.map(m => `<label class="opt"><input type="radio" name="cmodel" value="${m.id}" ${m.id === c.claude_model ? 'checked' : ''}>
+    <div><b>${esc(m.ad)}</b><small>${m.id.includes('haiku') ? 'Hızlı ve çok ucuz — araştırma başına ~5 kuruş' : 'Daha zeki ama ~20 kat pahalı'} · milyon parça ${m.fiyat}</small></div></label>`).join('');
+  document.getElementById('akey').value = '';
+  document.getElementById('akey').placeholder = c.anahtar_var ? '•••••••• kayıtlı (değiştirmek için yenisini yapıştır)' : 'sk-ant-...';
+  const kh = document.getElementById('khint');
+  kh.className = 'hint2' + (c.anahtar_var ? ' ok' : ''); kh.textContent = c.anahtar_var ? '✓ Anahtar kayıtlı' : 'console.anthropic.com → API Keys → Create Key';
+  document.getElementById('alimit').value = c.aylik_limit_usd;
+  const pct = c.aylik_limit_usd > 0 ? Math.min(100, c.harcama_usd / c.aylik_limit_usd * 100) : 100;
+  document.getElementById('spend').textContent = `Bu ay: $${c.harcama_usd.toFixed(4)} · ${c.istek} istek · sınırın %${pct.toFixed(1)}'i`;
+  document.getElementById('meter').style.width = pct + '%';
+}
+async function openSettings() {
+  if (!window.pywebview) return;
+  fillSettings(await pywebview.api.ayar_getir());
+  document.getElementById('modal').classList.add('show');
+}
+function closeSettings() { document.getElementById('modal').classList.remove('show'); }
+function readSettings() {
+  return { beyin: (document.querySelector('input[name=beyin]:checked') || {}).value,
+           claude_model: (document.querySelector('input[name=cmodel]:checked') || {}).value,
+           anahtar: document.getElementById('akey').value.trim(),
+           aylik_limit_usd: document.getElementById('alimit').value };
+}
+async function saveSettings() { fillSettings(await pywebview.api.ayar_kaydet(readSettings())); closeSettings(); }
+async function testKey() {
+  const kh = document.getElementById('khint');
+  kh.className = 'hint2'; kh.textContent = '⏳ Deniyorum…';
+  fillSettings(await pywebview.api.ayar_kaydet(readSettings()));
+  const r = await pywebview.api.anahtar_test();
+  kh.className = 'hint2 ' + (r.ok ? 'ok' : 'err'); kh.textContent = r.mesaj;
 }
 
 // ---------------- güncelleme ----------------
@@ -416,6 +485,9 @@ async function init() {
   welcome();
   refreshHistory();
   pywebview.api.guncelleme_kontrol().then(showUpdate);
+  pywebview.api.ayar_getir().then(c => { cfgCache = c; const w = chat.querySelector('.welcome');
+    if (w && c.beyin !== 'yerel' && !c.anahtar_var) w.insertAdjacentHTML('beforeend',
+      '<div class="hint2" style="margin-top:16px">💡 Daha akıllı cevaplar için <a href="#" onclick="openSettings();return false" style="color:var(--accent2)">⚙️ Ayarlar</a>\'dan Claude anahtarını ekle</div>'); });
   const s = await pywebview.api.ollama_durum();
   if (!s.calisiyor) { warn('⚠️ <b>Ollama çalışmıyor.</b> Başlat menüsünden Ollama\'yı aç.'); document.getElementById('dot').className = 'dot off'; document.getElementById('stateText').textContent = 'Beyin kapalı'; }
   else if (!s.model_var) warn(`⚠️ Model inmemiş. Komut satırında <code>ollama pull ${esc(a.model)}</code> çalıştır.`);
@@ -425,5 +497,23 @@ window.addEventListener('pywebviewready', init);
 if (!location.search.includes('demo')) setTimeout(() => { if (!window.pywebview) welcome(); }, 300);
 input.focus();
 </script>
+<div id="modal" onclick="if(event.target.id==='modal')closeSettings()">
+  <div class="mbox">
+    <h3>⚙️ Ayarlar <button onclick="closeSettings()">✕</button></h3>
+    <div class="fld"><label>BEYİN</label><div class="opts">
+      <label class="opt"><input type="radio" name="beyin" value="karma"><div><b>Karma</b> (önerilen)<small>Basit işler ücretsiz yerel beyinde, araştırma ve zor işler Claude'da</small></div></label>
+      <label class="opt"><input type="radio" name="beyin" value="claude"><div><b>Hep Claude</b><small>Her şey Claude'la, en akıllı hali</small></div></label>
+      <label class="opt"><input type="radio" name="beyin" value="yerel"><div><b>Sadece yerel</b><small>Tamamen ücretsiz, internetsiz çalışır</small></div></label>
+    </div></div>
+    <div class="fld"><label>CLAUDE MODELİ</label><div class="opts" id="mlist"></div></div>
+    <div class="fld"><label>CLAUDE API ANAHTARI</label>
+      <div class="keyrow"><input type="password" id="akey" placeholder="sk-ant-..."><button class="sbtn" onclick="testKey()">Dene</button></div>
+      <div class="hint2" id="khint"></div></div>
+    <div class="fld"><label>AYLIK HARCAMA SINIRI ($)</label>
+      <input type="number" id="alimit" min="0" step="0.5">
+      <div class="hint2" id="spend"></div><div class="meter"><div id="meter" style="width:0"></div></div></div>
+    <button class="sbtn pri" onclick="saveSettings()">Kaydet</button>
+  </div>
+</div>
 </body>
 </html>

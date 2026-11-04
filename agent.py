@@ -4,7 +4,12 @@ model hangi aracı çağırmak istiyorsa onu çalıştırır, sonucu geri verir.
 Onaylı araçlarda önce arayüzden kullanıcıya sorar.
 """
 import json
+import re
+import uuid
+
 import requests
+
+import claude_beyin
 
 from tools import TOOLS, ONAYLI, run_tool, describe_action, status_text
 
@@ -36,6 +41,7 @@ class Agent:
         self.cfg = config
         self.ui = ui
         self.stop = False
+        self.brain, self._brain_note = "yerel", ""
         self.reset()
 
     def reset(self):
@@ -43,12 +49,41 @@ class Agent:
         self.history = [{"role": "system", "content": SYSTEM.format(
             isim=self.cfg.get("isim", "Robi"), tarih=date.today().strftime("%d.%m.%Y"))}]
 
+    # ---------------- hangi beyin? ----------------
+    _ZOR = re.compile(r"araştır|nedir|kimdir|nasıl|neden|niye|hangi|kaç|puan|fikstür|maç|skor|haber|fiyat|kur|dolar|"
+                      r"euro|hava durumu|karşılaştır|özetle|öner|tavsiye|plan|anlat|açıkla|çevir|yorumla|youtube|"
+                      r"tablo|yaz|hesapla|\?")
+
+    def _choose_brain(self, text: str) -> str:
+        mode = self.cfg.get("beyin", "karma")
+        if mode == "yerel":
+            return "yerel"
+        ok, why = claude_beyin.kullanilabilir(self.cfg)
+        if not ok:
+            self._brain_note = why
+            return "yerel"
+        if mode == "claude":
+            return "claude"
+        # karma: kısa ve basit bilgisayar işleri yerelde, gerisi Claude'da
+        t = text.lower()
+        return "claude" if len(t) > 70 or self._ZOR.search(t) else "yerel"
+
     def _ask_model(self):
-        """Modele sorar; cevap yazıldıkça arayüze akıtır. Araç çağrılarını da toplar."""
+        if self.brain == "claude":
+            try:
+                return claude_beyin.sor(self.cfg, self.history, TOOLS, self.ui.stream, lambda: self.stop)
+            except claude_beyin.ClaudeHatasi as e:
+                self.brain = "yerel"  # bu iş yerel beyinle devam etsin
+                self._brain_note = str(e)
+                self.ui.brain("yerel", str(e))
+        return self._ask_local()
+
+    def _ask_local(self):
+        """Yerel modele sorar; cevap yazıldıkça arayüze akıtır. Araç çağrılarını da toplar."""
         url = self.cfg.get("ollama_url", "http://localhost:11434").rstrip("/") + "/api/chat"
         r = requests.post(url, json={
             "model": self.cfg.get("model", "qwen2.5:7b"),
-            "messages": self.history,
+            "messages": [{k: v for k, v in m.items() if not k.startswith("_")} for m in self.history],
             "tools": TOOLS,
             "stream": True,
             "keep_alive": self.cfg.get("hafizada_tut", "60m"),
@@ -103,6 +138,9 @@ class Agent:
             self.history.append({"role": "assistant", "content": reply})
             return reply
 
+        self._brain_note = ""
+        self.brain = self._choose_brain(text)
+        self.ui.brain(self.brain, self._brain_note)
         try:
             return self._loop()
         except Durduruldu:
@@ -134,6 +172,7 @@ class Agent:
             for call in calls:
                 if self.stop:
                     raise Durduruldu()
+                call.setdefault("_id", "t" + uuid.uuid4().hex[:12])
                 fn = call.get("function", {})
                 name = fn.get("name", "")
                 args = fn.get("arguments") or {}
@@ -159,7 +198,7 @@ class Agent:
                 content = json.dumps(result, ensure_ascii=False)
                 if len(content) > 8000:  # küçük modeller için kırp
                     content = content[:8000] + " ...(kırpıldı)"
-                self.history.append({"role": "tool", "content": content, "tool_name": name})
+                self.history.append({"role": "tool", "content": content, "tool_name": name, "_id": call["_id"]})
 
         return "Bu iş çok fazla adım sürdü kral, biraz daha parçalara bölebilir misin?"
 

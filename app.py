@@ -24,6 +24,9 @@ DEFAULT_CONFIG = {
     "ollama_url": "http://localhost:11434",
     "kisayol": "ctrl+shift+space",
     "max_adim": 8,
+    "beyin": "karma",              # yerel | karma | claude
+    "claude_model": "claude-haiku-5-5",
+    "aylik_limit_usd": 2.0,
 }
 
 
@@ -195,6 +198,47 @@ class Api:
             self._display.append({"r": "bot", "t": self._stext.strip()})
         self._stext = ""
         self._js("streamEnd")
+
+    def brain(self, name, note=""):
+        import claude_beyin
+        label = claude_beyin.MODELLER.get(self._cfg.get("claude_model", ""), ("Claude",))[0] if name == "claude" else "Yerel beyin"
+        self._js("setBrain", name, label, note)
+
+    # --- ayarlar penceresi ---
+    def ayar_getir(self):
+        import claude_beyin
+        h = claude_beyin.harcama()
+        return {
+            "beyin": self._cfg.get("beyin", "karma"),
+            "claude_model": self._cfg.get("claude_model", "claude-haiku-5-5"),
+            "aylik_limit_usd": self._cfg.get("aylik_limit_usd", 2.0),
+            "anahtar_var": bool(claude_beyin.anahtar()),
+            "harcama_usd": h["usd"], "istek": h["istek"],
+            "modeller": [{"id": k, "ad": v[0], "fiyat": f"${v[1]:g} / ${v[2]:g}"} for k, v in claude_beyin.MODELLER.items()],
+        }
+
+    def ayar_kaydet(self, d):
+        import claude_beyin
+        if d.get("anahtar"):
+            claude_beyin.anahtar_kaydet(d["anahtar"])
+        for k in ("beyin", "claude_model"):
+            if d.get(k):
+                self._cfg[k] = d[k]
+        try:
+            self._cfg["aylik_limit_usd"] = max(0.0, float(d.get("aylik_limit_usd", self._cfg.get("aylik_limit_usd", 2.0))))
+        except (TypeError, ValueError):
+            pass
+        CONFIG_PATH.write_text(json.dumps(self._cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+        return self.ayar_getir()
+
+    def anahtar_test(self):
+        """Anahtarı küçük bir istekle dener (maliyeti binde bir sent bile değil)."""
+        import claude_beyin
+        try:
+            msg = claude_beyin.sor(self._cfg, [{"role": "user", "content": "Sadece 'tamam' yaz."}], [], lambda t: None, lambda: False)
+            return {"ok": True, "mesaj": "Bağlantı çalışıyor ✅"}
+        except claude_beyin.ClaudeHatasi as e:
+            return {"ok": False, "mesaj": str(e)}
 
     def durdur(self):
         self._agent.stop = True
