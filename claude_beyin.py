@@ -89,8 +89,16 @@ def _messages(history):
         else:
             out.append({"role": role, "content": list(blocks)})
 
-    for m in history:
+    last_user = max((i for i, m in enumerate(history) if m.get("role") == "user"), default=-1)
+    for idx, m in enumerate(history):
         role = m.get("role")
+        if role == "assistant" and idx > last_user and m.get("_claude_blocks"):
+            # bu turda Claude'un ürettiği bloklar (web araması dahil) aynen geri gönderilmeli
+            for b in m["_claude_blocks"]:
+                if b.get("type") == "tool_use":
+                    known_ids.add(b["id"])
+            push("assistant", m["_claude_blocks"])
+            continue
         if role == "system":
             system = m["content"]
         elif role == "user":
@@ -127,21 +135,15 @@ def _messages(history):
 
 # ---------------- istek ----------------
 
-def sor(cfg, history, tools, on_text, should_stop):
-    """Claude'a sorar. Döner: Robi biçiminde assistant mesajı. Kullanılamazsa ClaudeHatasi."""
-    model = cfg.get("claude_model", "claude-haiku-5-5")
-    system, messages = _messages(history)
-    body = {
-        "model": model,
-        "max_tokens": 2048,
-        "system": system,
-        "messages": messages,
-        "thinking": {"type": "disabled"},
-        "output_config": {"effort": cfg.get("claude_effort", "medium")},
-        "stream": True,
-    }
-    if tools:
-        body["tools"] = _tools(tools)
+WEB_ARAMA_USD = 0.01  # resmi Claude web araması: arama başına
+
+
+def _web_search_tool():
+    return {"type": "web_search_20250305", "name": "web_search", "max_uses": 2,
+            "user_location": {"type": "approximate", "country": "TR", "timezone": "Europe/Istanbul"}}
+
+
+def _post(body):
     headers = {"x-api-key": anahtar(), "anthropic-version": "2023-06-01", "content-type": "application/json"}
     try:
         r = requests.post(API_URL, headers=headers, json=body, stream=True, timeout=(10, 120))
@@ -157,12 +159,23 @@ def sor(cfg, history, tools, on_text, should_stop):
             raise ClaudeHatasi("Claude anahtarı geçersiz. Ayarlardan yeni anahtar gir.")
         if "credit" in msg.lower() or "balance" in msg.lower():
             raise ClaudeHatasi("Claude hesabında kredi kalmamış.")
+        if "web search" in msg.lower() and body.get("tools"):
+            raise _WebAramaKapali()
         if r.status_code in (429, 529, 500, 503):
             raise ClaudeHatasi("Claude şu an yoğun.")
         raise ClaudeHatasi(f"Claude hatası ({r.status_code}): {msg}")
+    return r
 
-    text, calls, cur = "", [], None
-    usage_in, usage_out = 0, 0
+
+class _WebAramaKapali(Exception):
+    pass
+
+
+def _stream(r, on_text, on_status, should_stop):
+    """Bir cevabı okur. Döner: (ham bloklar, stop_reason, girdi, çıktı, web arama sayısı)"""
+    blocks, cur = [], None
+    usage_in = usage_out = searches = 0
+    stop = None
     try:
         for raw in r.iter_lines(decode_unicode=True):
             if should_stop():
@@ -175,33 +188,81 @@ def sor(cfg, history, tools, on_text, should_stop):
                 u = ev["message"].get("usage", {})
                 usage_in = u.get("input_tokens", 0) + u.get("cache_read_input_tokens", 0) + u.get("cache_creation_input_tokens", 0)
             elif t == "content_block_start":
-                b = ev["content_block"]
-                cur = {"type": b["type"], "id": b.get("id"), "name": b.get("name"), "json": ""}
-            elif t == "content_block_delta":
+                cur = dict(ev["content_block"])
+                if cur["type"] in ("tool_use", "server_tool_use"):
+                    cur["_json"] = ""
+                if cur["type"] == "server_tool_use":
+                    on_status("İnternette arıyorum")
+                if cur["type"] == "text":
+                    cur.setdefault("text", "")
+            elif t == "content_block_delta" and cur is not None:
                 d = ev["delta"]
                 if d.get("type") == "text_delta":
-                    text += d["text"]
+                    cur["text"] += d["text"]
                     on_text(d["text"])
-                elif d.get("type") == "input_json_delta" and cur:
-                    cur["json"] += d.get("partial_json", "")
-            elif t == "content_block_stop":
-                if cur and cur["type"] == "tool_use":
+                elif d.get("type") == "input_json_delta":
+                    cur["_json"] += d.get("partial_json", "")
+                elif d.get("type") == "citations_delta":
+                    cur.setdefault("citations", []).append(d["citation"])
+            elif t == "content_block_stop" and cur is not None:
+                if "_json" in cur:
                     try:
-                        args = json.loads(cur["json"]) if cur["json"] else {}
+                        cur["input"] = json.loads(cur["_json"]) if cur["_json"] else {}
                     except Exception:
-                        args = {}
-                    calls.append({"_id": cur["id"], "function": {"name": cur["name"], "arguments": args}})
+                        cur["input"] = {}
+                    del cur["_json"]
+                blocks.append(cur)
                 cur = None
             elif t == "message_delta":
-                usage_out = ev.get("usage", {}).get("output_tokens", usage_out)
+                u = ev.get("usage", {})
+                usage_out = u.get("output_tokens", usage_out)
+                usage_in = max(usage_in, u.get("input_tokens", 0) or 0)
+                searches = (u.get("server_tool_use") or {}).get("web_search_requests", searches)
+                stop = (ev.get("delta") or {}).get("stop_reason", stop)
             elif t == "error":
                 raise ClaudeHatasi("Claude cevap verirken hata oluştu: " + ev.get("error", {}).get("message", ""))
     finally:
         r.close()
-        _, p_in, p_out = MODELLER.get(model, ("", 2.0, 10.0))
-        _harcama_ekle(usage_in / 1e6 * p_in + usage_out / 1e6 * p_out)
+    return blocks, stop, usage_in, usage_out, searches
 
-    msg = {"role": "assistant", "content": text}
+
+def sor(cfg, history, tools, on_text, should_stop, on_status=lambda s: None):
+    """Claude'a sorar. Döner: Robi biçiminde assistant mesajı. Kullanılamazsa ClaudeHatasi."""
+    model = cfg.get("claude_model", "claude-haiku-5-5")
+    system, messages = _messages(history)
+    body = {
+        "model": model,
+        "max_tokens": 2048,
+        "system": system,
+        "messages": messages,
+        "thinking": {"type": "disabled"},
+        "output_config": {"effort": cfg.get("claude_effort", "medium")},
+        "stream": True,
+    }
+    if tools:
+        body["tools"] = _tools(tools)
+        if cfg.get("claude_web_arama", True):
+            body["tools"].append(_web_search_tool())
+
+    _, p_in, p_out = MODELLER.get(model, ("", 2.0, 10.0))
+    all_blocks = []
+    for _ in range(4):  # uzun aramalarda API "pause_turn" ile ara verebilir → devam ettir
+        try:
+            r = _post(body)
+        except _WebAramaKapali:
+            body["tools"] = [t for t in body["tools"] if t.get("name") != "web_search"]
+            r = _post(body)
+        blocks, stop, u_in, u_out, n_search = _stream(r, on_text, on_status, should_stop)
+        _harcama_ekle(u_in / 1e6 * p_in + u_out / 1e6 * p_out + n_search * WEB_ARAMA_USD)
+        all_blocks += blocks
+        if stop != "pause_turn" or should_stop():
+            break
+        body["messages"] = body["messages"] + [{"role": "assistant", "content": blocks}]
+
+    text = "".join(b.get("text", "") for b in all_blocks if b["type"] == "text")
+    calls = [{"_id": b["id"], "function": {"name": b["name"], "arguments": b.get("input", {})}}
+             for b in all_blocks if b["type"] == "tool_use"]
+    msg = {"role": "assistant", "content": text, "_claude_blocks": all_blocks}
     if calls:
         msg["tool_calls"] = calls
     return msg

@@ -127,7 +127,7 @@ class Api:
             "baslik": first[:48] + ("…" if len(first) > 48 else ""),
             "zaman": time.time(),
             "ekran": self._display,
-            "hafiza": self._agent.history[1:][-30:],  # sistem mesajı hariç
+            "hafiza": [{k: v for k, v in m.items() if k != "_claude_blocks"} for m in self._agent.history[1:][-30:]],
         }
         try:
             (CHATS_DIR / f"{self._chat_id}.json").write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
@@ -213,6 +213,7 @@ class Api:
             "claude_model": self._cfg.get("claude_model", "claude-haiku-5-5"),
             "aylik_limit_usd": self._cfg.get("aylik_limit_usd", 2.0),
             "anahtar_var": bool(claude_beyin.anahtar()),
+            "claude_web_arama": self._cfg.get("claude_web_arama", True),
             "harcama_usd": h["usd"], "istek": h["istek"],
             "modeller": [{"id": k, "ad": v[0], "fiyat": f"${v[1]:g} / ${v[2]:g}"} for k, v in claude_beyin.MODELLER.items()],
         }
@@ -224,6 +225,8 @@ class Api:
         for k in ("beyin", "claude_model"):
             if d.get(k):
                 self._cfg[k] = d[k]
+        if "claude_web_arama" in d:
+            self._cfg["claude_web_arama"] = bool(d["claude_web_arama"])
         try:
             self._cfg["aylik_limit_usd"] = max(0.0, float(d.get("aylik_limit_usd", self._cfg.get("aylik_limit_usd", 2.0))))
         except (TypeError, ValueError):

@@ -24,10 +24,11 @@ Kurallar:
 - DÜRÜSTLÜK EN ÖNEMLİ KURAL: Sadece araç sonucunda yazanı söyle. Araç "TARAYICIDA açıldı" diyorsa "uygulamada açtım" deme. Araç çağırmadan "açtım/yaptım" asla deme. Hata geldiyse hatayı aynen söyle.
 - Yapamadığın bir şey istenirse dürüstçe "bunu henüz yapamıyorum" de.
 - Güncel bilgi istenince (puan durumu, fikstür, maç sonucu, haber, fiyat, hava, kur vb.):
-  1) arastir aracını çağır (soru=kullanıcının sorusu, arama=kısa ve net arama sorgusu, gerekirse sezon/yıl ekle).
+  1) ÖNCE arastir aracını çağır (ücretsiz; soru=kullanıcının sorusu, arama=kısa ve net arama sorgusu, gerekirse sezon/yıl ekle).
+     arastir boş, hatalı ya da alakasız sonuç getirirse ve web_search aracın varsa web_search'ü kullan (ücretli, gerekmedikçe kullanma).
   2) Gelen içeriklerden cevabı KENDİN yaz: doğrudan bilgiyi ver, puan durumu/fikstür gibi şeyleri markdown tablo yap (| Sıra | Takım | O | P |).
   3) ASLA link ya da adres yazma, "şu siteden bakabilirsin" deme. En sona tek satır: "Kaynak: beIN SPORTS, Vikipedi" gibi sadece site adları.
-  4) İçerikte cevap yoksa arastir'ı farklı bir arama sorgusuyla bir kez daha dene. Yine yoksa dürüstçe "bulamadım" de. Bilgi uydurma.
+  4) Yine cevap yoksa dürüstçe "bulamadım" de. Bilgi uydurma.
   Sayfayı tarayıcıda açmak (web_ac) sadece kullanıcı "aç" derse. Bugünün tarihi: {tarih}.
 - Cevapların kısa ve öz olsun; gereksiz giriş/kapanış cümlesi yazma.
 - "Araştır ve not defterine/dosyaya kaydet" denirse: ÖNCE yukarıdaki gibi araştır ve bilgiyi topla, SONRA not_kaydet ile topladığın bilginin tamamını (başlık, tarih, bilgi, kaynak) kaydet. Boş not ya da sadece Not Defteri'ni açmak YASAK; uygulama_ac ile notepad açma.
@@ -71,7 +72,7 @@ class Agent:
     def _ask_model(self):
         if self.brain == "claude":
             try:
-                return claude_beyin.sor(self.cfg, self.history, TOOLS, self.ui.stream, lambda: self.stop)
+                return claude_beyin.sor(self.cfg, self.history, TOOLS, self.ui.stream, lambda: self.stop, self.ui.status)
             except claude_beyin.ClaudeHatasi as e:
                 self.brain = "yerel"  # bu iş yerel beyinle devam etsin
                 self._brain_note = str(e)
@@ -138,6 +139,8 @@ class Agent:
             self.history.append({"role": "assistant", "content": reply})
             return reply
 
+        for m in self.history:  # önceki turların ham Claude bloklarına artık gerek yok (hafıza şişmesin)
+            m.pop("_claude_blocks", None)
         self._brain_note = ""
         self.brain = self._choose_brain(text)
         self.ui.brain(self.brain, self._brain_note)

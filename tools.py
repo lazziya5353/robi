@@ -442,9 +442,17 @@ def _search_bing(q):
     return out
 
 
+def _search_ddgs(q):
+    """ddgs kütüphanesi: birden çok arama motorunu dener, engellere karşı güncel tutuluyor."""
+    from ddgs import DDGS
+    res = DDGS(timeout=10).text(q, region="tr-tr", safesearch="moderate", max_results=8)
+    return [{"başlık": r.get("title", ""), "adres": r.get("href", ""), "özet": r.get("body", "")}
+            for r in res if r.get("href", "").startswith("http")]
+
+
 def _search(q):
     errors = []
-    for fn in (_search_ddg, _search_bing):
+    for fn in (_search_ddgs, _search_ddg, _search_bing):
         try:
             res = [r for r in fn(q) if "bing.com/ck/a" not in r["adres"]]
             if res:

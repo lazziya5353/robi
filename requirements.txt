@@ -5,3 +5,4 @@ keyboard
 psutil
 requests
 send2trash
+ddgs

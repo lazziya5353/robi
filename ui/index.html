@@ -306,6 +306,7 @@ function fillSettings(c) {
   const kh = document.getElementById('khint');
   kh.className = 'hint2' + (c.anahtar_var ? ' ok' : ''); kh.textContent = c.anahtar_var ? '✓ Anahtar kayıtlı' : 'console.anthropic.com → API Keys → Create Key';
   document.getElementById('alimit').value = c.aylik_limit_usd;
+  document.getElementById('webara').checked = !!c.claude_web_arama;
   const pct = c.aylik_limit_usd > 0 ? Math.min(100, c.harcama_usd / c.aylik_limit_usd * 100) : 100;
   document.getElementById('spend').textContent = `Bu ay: $${c.harcama_usd.toFixed(4)} · ${c.istek} istek · sınırın %${pct.toFixed(1)}'i`;
   document.getElementById('meter').style.width = pct + '%';
@@ -320,7 +321,8 @@ function readSettings() {
   return { beyin: (document.querySelector('input[name=beyin]:checked') || {}).value,
            claude_model: (document.querySelector('input[name=cmodel]:checked') || {}).value,
            anahtar: document.getElementById('akey').value.trim(),
-           aylik_limit_usd: document.getElementById('alimit').value };
+           aylik_limit_usd: document.getElementById('alimit').value,
+           claude_web_arama: document.getElementById('webara').checked };
 }
 async function saveSettings() { fillSettings(await pywebview.api.ayar_kaydet(readSettings())); closeSettings(); }
 async function testKey() {
@@ -507,6 +509,8 @@ input.focus();
       <label class="opt"><input type="radio" name="beyin" value="yerel"><div><b>Sadece yerel</b><small>Tamamen ücretsiz, internetsiz çalışır</small></div></label>
     </div></div>
     <div class="fld"><label>CLAUDE MODELİ</label><div class="opts" id="mlist"></div></div>
+    <div class="fld"><label>YEDEK ARAMA</label>
+      <label class="opt"><input type="checkbox" id="webara"><div><b>Claude'un resmi web araması</b><small>Ücretsiz arama sonuç getiremezse devreye girer · arama başına $0.01 (~40 kuruş)</small></div></label></div>
     <div class="fld"><label>CLAUDE API ANAHTARI</label>
       <div class="keyrow"><input type="password" id="akey" placeholder="sk-ant-..."><button class="sbtn" onclick="testKey()">Dene</button></div>
       <div class="hint2" id="khint"></div></div>
