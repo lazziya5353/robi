@@ -243,6 +243,35 @@ class Api:
         except claude_beyin.ClaudeHatasi as e:
             return {"ok": False, "mesaj": str(e)}
 
+    def kopyala(self, text):
+        """Windows panosuna yazar (tarayıcı panosu izin vermezse yedek)."""
+        if not sys.platform.startswith("win"):
+            return False
+        import ctypes
+        from ctypes import wintypes
+        k32, u32 = ctypes.windll.kernel32, ctypes.windll.user32
+        k32.GlobalAlloc.restype, k32.GlobalAlloc.argtypes = wintypes.HGLOBAL, [wintypes.UINT, ctypes.c_size_t]
+        k32.GlobalLock.restype, k32.GlobalLock.argtypes = wintypes.LPVOID, [wintypes.HGLOBAL]
+        k32.GlobalUnlock.argtypes = [wintypes.HGLOBAL]
+        u32.OpenClipboard.argtypes = [wintypes.HWND]
+        u32.SetClipboardData.restype, u32.SetClipboardData.argtypes = wintypes.HANDLE, [wintypes.UINT, wintypes.HANDLE]
+        data = str(text).encode("utf-16-le") + b"\x00\x00"
+        for _ in range(20):
+            if u32.OpenClipboard(None):
+                break
+            time.sleep(0.05)
+        else:
+            return False
+        try:
+            u32.EmptyClipboard()
+            h = k32.GlobalAlloc(0x0002, len(data))  # GMEM_MOVEABLE
+            p = k32.GlobalLock(h)
+            ctypes.memmove(p, data, len(data))
+            k32.GlobalUnlock(h)
+            return bool(u32.SetClipboardData(13, h))  # CF_UNICODETEXT
+        finally:
+            u32.CloseClipboard()
+
     def durdur(self):
         self._agent.stop = True
         for item in list(self._pending.values()):  # bekleyen onay varsa iptal say

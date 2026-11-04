@@ -107,6 +107,13 @@
   #chat::-webkit-scrollbar { width: 6px; } #chat::-webkit-scrollbar-thumb { background: #2a2e3d; border-radius: 3px; }
 
   .msg { max-width: 86%; padding: 10px 13px; border-radius: 16px; word-wrap: break-word; animation: pop .18s ease-out; }
+  .msg { position: relative; user-select: text; -webkit-user-select: text; }
+  .cp { position: absolute; top: -11px; right: 10px; display: flex; align-items: center; gap: 4px; opacity: 0; pointer-events: none;
+    background: var(--panel); border: 1px solid var(--line); color: var(--muted); border-radius: 8px; padding: 3px 8px;
+    font: 600 11px "Segoe UI", system-ui, sans-serif; cursor: pointer; transition: opacity .12s; user-select: none; z-index: 2; }
+  .msg:hover .cp, .cp.done { opacity: 1; pointer-events: auto; }
+  .cp:hover { color: var(--text); border-color: #3a3f52; } .cp.done { color: var(--ok); border-color: #1f5a40; }
+  .msg.user .cp { right: auto; left: 10px; }
   @keyframes pop { from { transform: translateY(6px); opacity: 0; } }
   .msg.user { align-self: flex-end; background: var(--user); color: #fff; border-bottom-right-radius: 5px; }
   .msg.bot { align-self: flex-start; background: var(--bot); border: 1px solid var(--line); border-bottom-left-radius: 5px; }
@@ -271,18 +278,53 @@ function streamDelta(t) {
   live.innerHTML = live.innerHTML.replace('\u2063', '<span class="cur">▍</span>');
   scroll();
 }
-function streamEnd() { if (live) { live.innerHTML = md(liveText); live.classList.remove('live'); live = null; liveText = ''; } }
+function streamEnd() { if (live) { live.innerHTML = md(liveText); live.classList.remove('live'); addCopy(live); live = null; liveText = ''; } }
+
+// ---------------- kopyalama ----------------
+function plainText(el) {                  // ekrandaki hali: kalın yazı işaretleri yok, tablolar Excel'e yapışacak şekilde
+  const c = el.cloneNode(true);
+  c.querySelectorAll('.cp, .cur').forEach(x => x.remove());
+  c.style.cssText = 'position:fixed;left:-99999px;top:0;width:600px;animation:none';
+  document.body.appendChild(c);           // satır sonları doğru çıksın diye görünmez şekilde sayfaya koy
+  c.querySelectorAll('table').forEach(t => {
+    const div = document.createElement('div');
+    div.style.whiteSpace = 'pre';
+    div.textContent = Array.from(t.rows).map(r => Array.from(r.cells).map(td => td.innerText.trim()).join('\t')).join('\n');
+    (t.closest('.tw') || t).replaceWith(div);
+  });
+  c.querySelectorAll('li').forEach(li => li.prepend('• '));
+  c.querySelectorAll('a').forEach(a => a.replaceWith(a.title || a.textContent));
+  const txt = c.innerText.replace(/\n{3,}/g, '\n\n').trim();
+  c.remove();
+  return txt;
+}
+async function copyMsg(btn) {
+  const text = plainText(btn.parentElement);
+  let ok = false;
+  try { await navigator.clipboard.writeText(text); ok = true; } catch (e) {}
+  if (!ok && window.pywebview) ok = await pywebview.api.kopyala(text);
+  btn.classList.add('done'); btn.innerHTML = ok ? '✓ Kopyalandı' : '✕ Kopyalanamadı';
+  setTimeout(() => { btn.classList.remove('done'); btn.innerHTML = CP_LABEL; }, 1500);
+}
+const CP_LABEL = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>Kopyala';
+function addCopy(d) {
+  if (d.querySelector(':scope > .cp')) return;
+  const b = document.createElement('button'); b.className = 'cp'; b.innerHTML = CP_LABEL; b.title = 'Kopyala';
+  b.onclick = e => { e.stopPropagation(); copyMsg(b); };
+  d.appendChild(b);
+}
 
 function addMessage(role, text) {
   hideWorking();
   if (role === 'bot' && live) {           // akarak yazılan balonu son haliyle bitir
-    live.innerHTML = md(text); live.classList.remove('live'); live = null; liveText = '';
+    live.innerHTML = md(text); live.classList.remove('live'); addCopy(live); live = null; liveText = '';
     scroll(); if (!restoring) setBusy(false); return;
   }
   const w = chat.querySelector('.welcome'); if (w) w.remove();
   const d = document.createElement('div');
   d.className = 'msg ' + role;
   d.innerHTML = role === 'bot' ? md(text) : esc(text).replace(/\n/g, '<br>');
+  if (role !== 'sys') addCopy(d);
   chat.appendChild(d); scroll();
   if (role === 'bot' && !restoring) setBusy(false);
 }
