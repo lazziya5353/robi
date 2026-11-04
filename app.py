@@ -121,6 +121,12 @@ class Api:
     def tg_kaldir(self):
         return self._tg.kaldir()
 
+    def tg_pin_kaydet(self, pin):
+        return self._tg.pin_kaydet(pin)
+
+    def tg_pin_kaldir(self):
+        return self._tg.pin_kaldir()
+
     def onay(self, req_id, karar):
         item = self._pending.get(req_id)
         if item:

@@ -436,7 +436,12 @@ async function renderTg() {
     tgTimer = setTimeout(renderTg, 3000);  // eşleşmeyi kendiliğinden fark et
   } else {
     box.innerHTML = `<div class="tgok"><span>✅ Bağlı: <b>@${esc(d.bot)}</b></span><button class="sbtn" onclick="tgRemove()">Bağlantıyı kaldır</button></div>
-      <div class="hint2">Telefondan yazdığın işler burada 📱 ile görünür. Bitince cevap, rapor dosyası ve onay butonları telefonuna gelir.</div>`;
+      <div class="hint2">Telefondan yazdığın işler burada 📱 ile görünür. Bitince cevap, rapor dosyası ve onay butonları telefonuna gelir.</div>
+      <div style="margin-top:10px">${d.pin
+        ? `<div class="tgok"><span>🔐 PIN açık — telefondan riskli işler PIN ister</span><button class="sbtn" onclick="tgPinRemove()">PIN'i kaldır</button></div>`
+        : `<div class="keyrow"><input type="password" id="tgpin" inputmode="numeric" maxlength="6" placeholder="4-6 haneli PIN"><button class="sbtn" onclick="tgPinSave()">PIN koy</button></div>
+           <div class="hint2 err">Önerilir: telefonun başkasının eline geçse bile silme/kaldırma/kapatma işleri PIN'siz yapılamaz.</div>`}
+      <div class="hint2" id="pinmsg"></div></div>`;
   }
 }
 async function tgSave() {
@@ -445,6 +450,12 @@ async function tgSave() {
   await pywebview.api.tg_kaydet(t); renderTg();
 }
 async function tgRemove() { await pywebview.api.tg_kaldir(); renderTg(); }
+async function tgPinSave() {
+  const r = await pywebview.api.tg_pin_kaydet(document.getElementById('tgpin').value);
+  if (r.hata) { document.getElementById('pinmsg').className = 'hint2 err'; document.getElementById('pinmsg').textContent = r.hata; return; }
+  renderTg();
+}
+async function tgPinRemove() { await pywebview.api.tg_pin_kaldir(); renderTg(); }
 
 // ---------------- ben yokken + onay bekleyenler ----------------
 async function toggleAway() {

@@ -6,8 +6,10 @@ Güvenlik:
 - Bot sadece eşleşme kodunu gönderen TEK kişiyi tanır; başka herkes yok sayılır.
 - Silme/kaldırma/kapatma gibi işler Telegram'da ✅/❌ butonlarıyla onaylanır.
 """
+import hashlib
 import html
 import io
+import os
 import json
 import random
 import re
@@ -85,6 +87,8 @@ class Telegram:
         self._waits = {}            # onay bekleyen: id -> {"event", "sonuc"}
         self._thread = None
         self._gen = 0               # token değişince eski döngü dursun
+        self._pin_wait = None       # PIN bekleyen onay: {"kind": "c"|"p", "id", "tries"}
+        self._lock_until = 0        # çok fazla yanlış PIN → telefondan onay kilitli
 
     # ---------------- durum ----------------
     @property
@@ -105,7 +109,37 @@ class Telegram:
             return {"durum": "hata", "mesaj": self.error}
         if not self.chat_id:
             return {"durum": "eslesme", "kod": self.pair_code, "bot": self.username}
-        return {"durum": "bagli", "bot": self.username}
+        return {"durum": "bagli", "bot": self.username, "pin": self.pin_var()}
+
+    # ---------------- PIN (riskli işler için ikinci kilit) ----------------
+    def pin_var(self):
+        return bool(_secrets().get("tg_pin_hash"))
+
+    @staticmethod
+    def _hash(pin, salt):
+        return hashlib.pbkdf2_hmac("sha256", pin.encode(), bytes.fromhex(salt), 200_000).hex()
+
+    def pin_kaydet(self, pin: str):
+        pin = (pin or "").strip()
+        if not (pin.isdigit() and 4 <= len(pin) <= 6):
+            return {"hata": "PIN 4-6 haneli bir sayı olmalı."}
+        salt = os.urandom(16).hex()
+        _save_secret(tg_pin_salt=salt, tg_pin_hash=self._hash(pin, salt))
+        return {"tamam": True}
+
+    def pin_kaldir(self):
+        _save_secret(tg_pin_salt=None, tg_pin_hash=None)
+        return {"tamam": True}
+
+    def _pin_dogru(self, pin: str) -> bool:
+        d = _secrets()
+        if not d.get("tg_pin_hash"):
+            return True
+        import hmac
+        return hmac.compare_digest(self._hash(pin, d["tg_pin_salt"]), d["tg_pin_hash"])
+
+    def _kilitli(self):
+        return time.time() < self._lock_until
 
     # ---------------- ayarlar ----------------
     def kaydet(self, token: str):
@@ -182,20 +216,31 @@ class Telegram:
     # ---------------- Telegram'dan onay ----------------
     def ask(self, info, timeout=900) -> bool:
         """Onay kartını telefona gönderir, cevabı bekler (15 dk içinde cevap yoksa 'hayır')."""
+        if self._kilitli():
+            self.send("🔒 Çok fazla yanlış PIN girildiği için telefondan onay 15 dakika kapalı. Bu işlemi yapmadım.")
+            return False
         wid = str(random.randint(10000, 99999))
         ev = threading.Event()
         self._waits[wid] = {"event": ev, "sonuc": False}
         detay = "\n".join(f"• {d}" for d in info.get("detay", [])[:15])
-        self.send(f"⚠️ **{info.get('baslik', 'Onay gerekiyor')}**\n{detay}",
-                  buttons=[[{"text": "✅ Onayla", "callback_data": f"c:{wid}:1"},
-                            {"text": "❌ İptal", "callback_data": f"c:{wid}:0"}]])
+        if self.pin_var():
+            self._pin_wait = {"kind": "c", "id": wid, "tries": 0}
+            self.send(f"⚠️ **{info.get('baslik', 'Onay gerekiyor')}**\n{detay}\n\n🔐 Onaylamak için **PIN'ini** yaz.",
+                      buttons=[[{"text": "❌ İptal", "callback_data": f"c:{wid}:0"}]])
+        else:
+            self.send(f"⚠️ **{info.get('baslik', 'Onay gerekiyor')}**\n{detay}",
+                      buttons=[[{"text": "✅ Onayla", "callback_data": f"c:{wid}:1"},
+                                {"text": "❌ İptal", "callback_data": f"c:{wid}:0"}]])
         ev.wait(timeout)
+        if self._pin_wait and self._pin_wait.get("id") == wid:
+            self._pin_wait = None
         res = self._waits.pop(wid, {"sonuc": False})["sonuc"]
         if not ev.is_set():
             self.send("⌛ 15 dakika cevap gelmedi, bu işlemi yapmadım.")
         return res
 
     def cancel_waits(self):
+        self._pin_wait = None
         for w in list(self._waits.values()):
             w["sonuc"] = False
             w["event"].set()
@@ -251,7 +296,15 @@ class Telegram:
             kind, wid, val = (cq.get("data", "") + "::").split(":")[:3]
             ok = val == "1"
             note = "✅ Onaylandı" if ok else "❌ İptal edildi"
-            if kind == "c" and wid in self._waits:
+            if ok and self.pin_var():  # PIN açıksa butonla onay yok, PIN istenir
+                if self._kilitli():
+                    note = "🔒 Telefondan onay geçici olarak kilitli"
+                else:
+                    self._pin_wait = {"kind": kind, "id": wid, "tries": 0}
+                    note = "🔐 Onaylamak için PIN'ini yaz"
+            elif kind == "c" and wid in self._waits:
+                if not ok and self._pin_wait and self._pin_wait.get("id") == wid:
+                    self._pin_wait = None
                 self._waits[wid]["sonuc"] = ok
                 self._waits[wid]["event"].set()
             elif kind == "p":
@@ -286,6 +339,10 @@ class Telegram:
         if str(cid) != str(self.chat_id):
             return  # yabancı: cevap bile verme
 
+        if self._pin_wait:
+            self._handle_pin(text, msg)
+            return
+
         low = text.lower().split("@")[0]
         if low in ("/start", "/yardim", "/help"):
             self.send(YARDIM)
@@ -311,3 +368,42 @@ class Telegram:
                 self.send("Ekran görüntüsü alınamadı.")
         else:
             self.api.telegram_mesaj(text)
+
+    def _handle_pin(self, text, msg):
+        w = self._pin_wait
+        try:  # PIN sohbette görünür kalmasın
+            self._call("deleteMessage", chat_id=self.chat_id, message_id=msg.get("message_id"))
+        except Exception:
+            pass
+        low = text.lower().strip()
+        if low in ("iptal", "/iptal", "vazgeç", "hayır"):
+            self._pin_wait = None
+            self._resolve(w, False)
+            self.send("❌ İptal edildi.")
+            return
+        if not text.strip().isdigit():
+            self.send("🔐 Önce bekleyen onayı cevapla: **PIN'ini** yaz ya da **iptal** yaz.")
+            return
+        if self._pin_dogru(text.strip()):
+            self._pin_wait = None
+            self._resolve(w, True)
+            return
+        w["tries"] += 1
+        if w["tries"] >= 3:
+            self._pin_wait = None
+            self._lock_until = time.time() + 900
+            self._resolve(w, False)
+            self.send("🔒 3 kez yanlış PIN. İşlemi iptal ettim, telefondan onay 15 dakika kilitli.")
+            self.api._js("addMessage", "sys", "⚠️ Telegram'dan 3 kez yanlış PIN girildi; telefondan onay 15 dk kilitlendi.")
+        else:
+            self.send(f"❌ Yanlış PIN. {3 - w['tries']} hakkın kaldı.")
+
+    def _resolve(self, w, ok):
+        if w["kind"] == "c" and w["id"] in self._waits:
+            self._waits[w["id"]]["sonuc"] = ok
+            self._waits[w["id"]]["event"].set()
+            if ok:
+                self.send("✅ PIN doğru, onaylandı.")
+        elif w["kind"] == "p" and ok:
+            self.send(self.api.bekleyen_karar(w["id"], True).get("mesaj", "✅ Onaylandı"))
+            self.api._js("refreshPending")
