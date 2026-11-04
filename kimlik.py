@@ -85,16 +85,18 @@ def _make_lnk(folder_ps: str, name: str, only_if_exists: bool = False):
     ps = (
         f"$d={target}; {check}"
         f"$s=(New-Object -ComObject WScript.Shell).CreateShortcut(\"$d\\{name}.lnk\"); "
-        "$s.TargetPath=$env:ROBI_EXE; $s.Arguments='\"' + $env:ROBI_APP + '\"'; "
+        "$s.TargetPath=$env:ROBI_EXE; if ($env:ROBI_APP) { $s.Arguments='\"' + $env:ROBI_APP + '\"' }; "
         "$s.WorkingDirectory=$env:ROBI_DIR; $s.IconLocation=$env:ROBI_ICO; "
         "$s.Description='Bilgisayar yardımcı robotu'; $s.Save()"
     )
-    env = {**os.environ, "ROBI_EXE": str(_pythonw()), "ROBI_APP": str(BASE / "baslatici.py"),
+    frozen = getattr(sys, "frozen", False)  # Robi.exe ise doğrudan exe'yi çalıştır
+    env = {**os.environ, "ROBI_EXE": str(sys.executable if frozen else _pythonw()),
+           "ROBI_APP": "" if frozen else str(BASE / "baslatici.py"),
            "ROBI_DIR": str(BASE), "ROBI_ICO": str(ensure_icon())}
     subprocess.run(["powershell", "-NoProfile", "-Command", ps], env=env, timeout=20, creationflags=_NO_WINDOW)
 
 
-SHORTCUT_VERSION = "v2"  # kısayolun hedefi değişince artır
+SHORTCUT_VERSION = "v3"  # kısayolun hedefi değişince artır
 
 
 def create_shortcuts(name: str = "Robi"):

@@ -98,6 +98,15 @@ def guncelle(repo: str, dal: str = "main"):
 
     with zipfile.ZipFile(io.BytesIO(r.content)) as z:
         root = z.namelist()[0].split("/")[0] + "/"
+        if getattr(sys, "frozen", False):  # exe'de pip yok: yeni kütüphane gerekiyorsa yeni kurulum lazım
+            try:
+                new = z.read(root + "requirements.txt").decode("utf-8")
+            except KeyError:
+                new = old_req
+            if _paketler(new) - _paketler(old_req):
+                shutil.rmtree(BACKUP, ignore_errors=True)
+                return {"durum": "hata", "mesaj": "Bu sürüm yeni bir bileşen istiyor. Yeni Robi Kurulum dosyasını "
+                                                  "github.com/lazziya5353/robi/releases adresinden indirip kur (ayarların korunur)."}
         for name in z.namelist():
             rel = name[len(root):]
             if not rel or rel.split("/")[0] in KORUNAN:
@@ -111,7 +120,7 @@ def guncelle(repo: str, dal: str = "main"):
                 shutil.copyfileobj(src, out)
 
     new_req = (BASE / "requirements.txt").read_text(encoding="utf-8") if (BASE / "requirements.txt").exists() else ""
-    if new_req != old_req:  # yeni kütüphane geldiyse kur
+    if new_req != old_req and not getattr(sys, "frozen", False):  # yeni kütüphane geldiyse kur
         py = Path(sys.executable)
         if py.name.lower() == "pythonw.exe":
             py = py.with_name("python.exe")
@@ -121,6 +130,12 @@ def guncelle(repo: str, dal: str = "main"):
     VERSION.write_text(info["sha"])
     FRESH.write_text(info["sha"])  # ilk açılış başarılı olursa silinir; çökerse başlatıcı geri alır
     return {"durum": "tamam", "mesaj": info["mesaj"]}
+
+
+def _paketler(req_text: str) -> set:
+    import re
+    return {re.split(r"[<>=!~\[ ]", l.strip(), 1)[0].lower() for l in req_text.splitlines()
+            if l.strip() and not l.strip().startswith("#")}
 
 
 def _yedekle():
@@ -140,6 +155,9 @@ def _yedekle():
 
 
 def yeniden_baslat():
+    if getattr(sys, "frozen", False):  # Robi.exe
+        subprocess.Popen([sys.executable, "--yeniden"], cwd=str(BASE))
+        return
     exe = Path(sys.executable)
     if exe.name.lower() == "python.exe" and exe.with_name("pythonw.exe").exists():
         exe = exe.with_name("pythonw.exe")

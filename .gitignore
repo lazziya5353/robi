@@ -12,3 +12,8 @@ atla.txt
 harcama.json
 hafiza.md
 bekleyen_onaylar.json
+build/
+dist/
+Output/
+paket/
+*.spec

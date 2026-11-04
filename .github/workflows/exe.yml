@@ -1,0 +1,89 @@
+name: Robi Kurulum (.exe)
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  derle:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Kütüphaneleri kur
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller
+
+      - name: Bağımlılık listesini üret
+        run: python araclar/bagimlilik_uret.py
+
+      - name: Robi.exe'yi derle (PyInstaller)
+        run: >
+          pyinstaller --noconfirm --clean --windowed --onedir --name Robi --icon robi.ico
+          --exclude-module app --exclude-module agent --exclude-module tools --exclude-module claude_beyin
+          --exclude-module hizli --exclude-module updater --exclude-module kimlik --exclude-module hafiza
+          --exclude-module belge --exclude-module telegram_bag --exclude-module kisayol
+          --collect-all webview --collect-all pystray --collect-all ddgs --collect-all docx
+          --collect-all clr_loader --collect-all pythonnet --collect-all send2trash --collect-all primp
+          --collect-data certifi
+          baslatici.py
+
+      - name: Robi'nin kodunu paketle
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force paket | Out-Null
+          Copy-Item *.py, requirements.txt, BENIOKU.md, config.json, robi.ico paket/
+          Copy-Item -Recurse ui paket/ui
+          Remove-Item paket/_bagimliliklar.py
+          Set-Content -NoNewline paket/surum.txt "${{ github.sha }}"
+          Set-Content -NoNewline paket/kisayol.ok "v3"
+
+      - name: Duman testi (exe açılıyor mu?)
+        shell: pwsh
+        run: |
+          Copy-Item -Recurse dist/Robi smoke
+          Copy-Item -Recurse -Force paket/* smoke/
+          $p = Start-Process smoke/Robi.exe -PassThru
+          Start-Sleep -Seconds 25
+          if (Test-Path smoke/hata.log) { Get-Content smoke/hata.log; throw "Robi açılırken hata verdi" }
+          if ($p.HasExited) { throw "Robi kapandı (çıkış kodu $($p.ExitCode))" }
+          Write-Host "Robi 25 saniyedir çalışıyor ✅"
+          Stop-Process -Id $p.Id -Force
+
+      - name: Kurulum dosyasını oluştur (Inno Setup)
+        shell: pwsh
+        run: |
+          $ver = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}".TrimStart("v") } else { "0.0.0" }
+          if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) { choco install innosetup -y --no-progress }
+          $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) { $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" }
+          & $iscc "/DAppVersion=$ver" kurulum/robi.iss
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RobiKurulum
+          path: Output/RobiKurulum.exe
+
+      - name: GitHub Releases'a koy
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Output/RobiKurulum.exe
+          name: Robi ${{ github.ref_name }}
+          body: |
+            **Robi Kurulum** — çift tıkla, kur, Robi açılsın.
+
+            1. `RobiKurulum.exe`'yi indir ve çalıştır (Windows "bilgisayarınızı korudu" derse: **Ek bilgi → Yine de çalıştır**)
+            2. Robi açılınca **⚙️ Ayarlar** → Claude API anahtarını gir → **Dene** → **Kaydet**
+            3. İstersen **Telegram**'ı bağla, telefondan iş ver
+
+            Robi kendini otomatik günceller; bu dosyayı tekrar indirmen gerekmez.

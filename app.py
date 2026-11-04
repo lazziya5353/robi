@@ -568,12 +568,10 @@ def main():
 
     threading.Thread(target=warmup, daemon=True).start()
 
-    # --- klavye kısayolu ---
-    try:
-        import keyboard
-        keyboard.add_hotkey(cfg["kisayol"], api.show)
-    except Exception as e:
-        print("Kısayol ayarlanamadı:", e)
+    # --- klavye kısayolu (Windows'un kendi sistemiyle) ---
+    import kisayol
+    if not kisayol.baslat(cfg["kisayol"], api.show):
+        print("Kısayol ayarlanamadı (başka bir program aynı tuşları kullanıyor olabilir):", cfg["kisayol"])
 
     webview.start(debug="--debug" in sys.argv)
 

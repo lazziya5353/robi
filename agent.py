@@ -92,7 +92,16 @@ class Agent:
                 self.brain = "yerel"  # bu iş yerel beyinle devam etsin
                 self._brain_note = str(e)
                 self.ui.brain("yerel", str(e))
-        return self._ask_local()
+        try:
+            return self._ask_local()
+        except requests.ConnectionError:
+            # yerel beyin (Ollama) yok/kapalı ama Claude kullanılabiliyorsa ona geç
+            ok, _ = claude_beyin.kullanilabilir(self.cfg)
+            if not ok:
+                raise
+            self.brain = "claude"
+            self.ui.brain("claude", "")
+            return claude_beyin.sor(self.cfg, self.history, TOOLS, self.ui.stream, lambda: self.stop, self.ui.status)
 
     def _ask_local(self):
         """Yerel modele sorar; cevap yazıldıkça arayüze akıtır. Araç çağrılarını da toplar."""

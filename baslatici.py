@@ -11,7 +11,9 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 
-BASE = Path(__file__).resolve().parent
+FROZEN = getattr(sys, "frozen", False)  # Robi.exe olarak mı çalışıyor?
+# exe'de kod dosyaları exe'nin yanında durur (güncellenebilsin diye exe'ye gömülmez)
+BASE = Path(sys.executable).resolve().parent if FROZEN else Path(__file__).resolve().parent
 LOG = BASE / "hata.log"
 BACKUP = BASE / "yedek"
 FRESH = BASE / "yeni_guncelleme"   # güncellemeden sonra ilk başarılı açılışta silinir
@@ -49,6 +51,9 @@ def rollback() -> bool:
 
 
 def relaunch():
+    if FROZEN:
+        subprocess.Popen([sys.executable, "--yeniden"], cwd=str(BASE))
+        return
     exe = Path(sys.executable)
     w = exe.with_name("pythonw.exe")
     subprocess.Popen([str(w if w.exists() else exe), str(BASE / "baslatici.py"), "--yeniden"], cwd=str(BASE))
@@ -58,7 +63,10 @@ def main():
     os.chdir(BASE)
     sys.path.insert(0, str(BASE))
     try:
-        import app
+        if FROZEN:
+            import _bagimliliklar  # noqa: F401  (exe'ye gerekli kütüphaneleri dahil ettirir)
+        import importlib
+        app = importlib.import_module("app")  # exe'nin yanındaki app.py (güncellenebilir)
         app.main()
     except SystemExit:
         raise
