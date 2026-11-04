@@ -371,6 +371,29 @@ def not_kaydet(baslik: str, icerik: str, klasor: str = "masaüstü", ac: bool = 
     return {"tamam": "Not kaydedildi" + (" ve Not Defteri'nde açıldı." if ac else "."), "dosya": str(path)}
 
 
+def word_kaydet(baslik: str, icerik: str, klasor: str = "belgeler", ac: bool = True):
+    """Düzenli bir Word (.docx) belgesi oluşturur. Var olan dosyanın üstüne ASLA yazmaz."""
+    import re
+    import belge
+    folder = _known_folder(klasor)
+    if _is_protected(folder / "x"):
+        return {"hata": "Bu klasöre yazamam."}
+    folder.mkdir(parents=True, exist_ok=True)
+    name = re.sub(r'[<>:"/\\|?*\n\r\t]', "", baslik).strip()[:60] or "Robi belgesi"
+    path = folder / f"{name}.docx"
+    n = 2
+    while path.exists():
+        path = folder / f"{name} ({n}).docx"
+        n += 1
+    try:
+        belge.olustur(baslik, icerik, path)
+    except ImportError:
+        return {"hata": "Word kütüphanesi kurulu değil. Robi'yi güncelleyip yeniden aç."}
+    if ac and IS_WINDOWS:
+        os.startfile(str(path))
+    return {"tamam": "Word belgesi oluşturuldu" + (" ve açıldı." if ac else "."), "dosya": str(path)}
+
+
 # --------------------------- İnternet araştırması ---------------------------
 
 _UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -817,6 +840,7 @@ TOOLS = [
     _t("zamanli_kapat", "Bilgisayarı belirtilen dakika sonra kapatır (onay otomatik istenir). iptal=true ise ayarlı kapatmayı iptal eder.", {"dakika": {"type": "integer"}, "iptal": {"type": "boolean"}}),
     _t("not_kaydet", "Yazıyı yeni bir .txt dosyasına kaydeder ve Not Defteri'nde açar. Var olan dosyanın üstüne yazmaz. 'icerik' tam ve düzenli metin olmalı.", {"baslik": {"type": "string", "description": "Dosya adı, örn 'Süper Lig puan durumu'"}, "icerik": {"type": "string"}, "klasor": _KLASOR, "ac": {"type": "boolean"}}, ["baslik", "icerik"]),
     _t("arastir", "GÜNCEL BİLGİ İÇİN İLK TERCİH. İnternette arar, en iyi 3 sayfayı okur ve soruyla ilgili kısımları getirir. Puan durumu, fikstür, maç sonucu, haber, fiyat, hava, kur vb.", {"soru": {"type": "string", "description": "Kullanıcının sorusu"}, "arama": {"type": "string", "description": "Arama motoruna yazılacak kısa sorgu, örn 'şampiyonlar ligi puan durumu 2026-27'"}}, ["soru"]),
+    _t("word_kaydet", "Düzenli bir Word (.docx) belgesi oluşturur ve açar. 'icerik' markdown gibi yazılır: '# Başlık', '## Alt başlık', '- madde', '| tablo | satırı |', '**kalın**'. Var olan dosyanın üstüne yazmaz.", {"baslik": {"type": "string"}, "icerik": {"type": "string"}, "klasor": _KLASOR, "ac": {"type": "boolean"}}, ["baslik", "icerik"]),
     _t("web_ara", "İnternette arama yapar; başlık, adres ve kısa özet döner. Güncel bilgi (puan durumu, fikstür, haber, fiyat, hava) için ilk adım.", {"arama": {"type": "string"}, "adet": {"type": "integer"}}, ["arama"]),
     _t("sayfa_oku", "Bir web sayfasına girip yazısını ve tablolarını okur. 'odak' verilirse sayfanın o kelimenin geçtiği kısmından başlar. Uzun sayfalarda 'baslangic' ile devamını okursun.", {"adres": {"type": "string"}, "odak": {"type": "string", "description": "Sayfada aranacak kelime, örn 'Puan durumu'"}, "baslangic": {"type": "integer"}}, ["adres"]),
     _t("youtube_ara", "YouTube'da arama yapar, ilk sonuçların başlık, kanal, süre ve izlenmesini döner. Video açmaz.", {"arama": {"type": "string"}, "adet": {"type": "integer"}}, ["arama"]),
@@ -834,7 +858,7 @@ _FUNCS = {
     "buyuk_dosyalar": buyuk_dosyalar, "uygulamalari_listele": uygulamalari_listele,
     "uygulama_ac": uygulama_ac, "web_ac": web_ac, "gecici_dosya_boyutu": gecici_dosya_boyutu,
     "youtube_ara": youtube_ara, "youtube_ac": youtube_ac,
-    "web_ara": web_ara, "sayfa_oku": sayfa_oku, "arastir": arastir, "not_kaydet": not_kaydet,
+    "web_ara": web_ara, "sayfa_oku": sayfa_oku, "arastir": arastir, "not_kaydet": not_kaydet, "word_kaydet": word_kaydet,
     "ses_medya": ses_medya, "zamanli_kapat": zamanli_kapat,
     "calisan_programlar": calisan_programlar, "dosya_sil": dosya_sil, "dosya_tasi": dosya_tasi,
     "uygulama_kaldir": uygulama_kaldir, "gecici_dosyalari_temizle": gecici_dosyalari_temizle,
@@ -849,7 +873,7 @@ _STATUS = {
     "web_ac": "Siteyi açıyorum", "gecici_dosya_boyutu": "Geçici dosyaları ölçüyorum",
     "calisan_programlar": "Çalışan programlara bakıyorum",
     "youtube_ara": "YouTube'da arıyorum", "youtube_ac": "YouTube'u açıyorum",
-    "web_ara": "İnternette arıyorum", "arastir": "Araştırıyorum, sayfaları okuyorum", "sayfa_oku": "Sayfayı okuyorum", "not_kaydet": "Not defterine yazıyorum",
+    "web_ara": "İnternette arıyorum", "arastir": "Araştırıyorum, sayfaları okuyorum", "sayfa_oku": "Sayfayı okuyorum", "not_kaydet": "Not defterine yazıyorum", "word_kaydet": "Word belgesi hazırlıyorum",
 }
 
 

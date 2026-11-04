@@ -6,3 +6,4 @@ psutil
 requests
 send2trash
 ddgs
+python-docx
