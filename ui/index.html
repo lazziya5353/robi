@@ -60,7 +60,8 @@
     background: #1e2230; color: var(--muted); border: 1px solid var(--line); }
   .bchip.claude { background: #2a1d14; color: #ffb27a; border-color: #5a3a22; }
   #modal { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: none; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
-  #modal.show { display: flex; }
+  #modal.show, #pmodal.show { display: flex; }
+  #pmodal { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: none; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
   .mbox { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; width: 100%; max-width: 420px; max-height: 92vh; overflow-y: auto; padding: 18px; }
   .mbox h3 { font-size: 16px; margin-bottom: 14px; display: flex; align-items: center; justify-content: space-between; }
   .mbox h3 button { background: none; border: none; color: var(--muted); font-size: 18px; cursor: pointer; }
@@ -101,6 +102,18 @@
   .tgok { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--ok); }
   .msg pre.code { background: #0b0d13; border-radius: 8px; padding: 8px 10px; margin: 6px 0; font: 12.5px/1.45 Consolas, monospace;
     color: var(--accent2); white-space: pre-wrap; word-break: break-all; }
+  .prow { display: flex; gap: 8px; align-items: center; padding: 9px 10px; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 6px; font-size: 13px; }
+  .prow.off { opacity: .5; }
+  .prow .pt2 { flex: 1; min-width: 0; } .prow .pt2 small { display: block; color: var(--muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .prow button { border: none; background: #262a38; color: var(--text); border-radius: 8px; padding: 5px 8px; font: 600 11.5px "Segoe UI", system-ui; cursor: pointer; }
+  .prow button.del2:hover { background: #3a141a; color: #ff8a95; }
+  .days { display: flex; gap: 4px; flex-wrap: wrap; }
+  .days label { border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; font-size: 12px; cursor: pointer; user-select: none; }
+  .days label:has(input:checked) { border-color: var(--accent); background: #1d1a33; } .days input { display: none; }
+  .mbox input[type=text], .mbox input[type=time], .mbox input[type=date], .mbox select { width: 100%; background: var(--bg); border: 1px solid var(--line);
+    border-radius: 9px; padding: 8px 10px; color: var(--text); font: inherit; font-size: 13px; outline: none; color-scheme: dark; }
+  .mbox textarea.small { min-height: 70px; font-family: inherit; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .msg.sys { align-self: center; font-size: 12px; color: var(--muted); background: none; padding: 2px 8px; }
   header {
     display: flex; align-items: center; gap: 12px; padding: 14px 16px;
@@ -221,6 +234,7 @@
     <div class="state"><span class="dot" id="dot"></span><span id="stateText">Hazır</span></div>
   </div>
   <button class="awaybtn" id="awaybtn" onclick="toggleAway()" title="Evden çıkarken aç: Robi soru sormadan işi bitirir, sonunda rapor hazırlar">🚶 <span>Ben yokken</span></button>
+  <button class="iconbtn" title="Çalışma programı" onclick="openProgram()" style="margin-right:6px">📅</button>
   <button class="iconbtn" title="Ayarlar" onclick="openSettings()" style="margin-right:6px">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
   </button>
@@ -416,6 +430,58 @@ function notify(text) {
   const d = document.createElement('div'); d.className = 'msg bot'; d.innerHTML = md(text); addCopy(d);
   if (live) chat.insertBefore(d, live); else if (working) chat.insertBefore(d, working); else chat.appendChild(d);
   scroll();
+}
+
+// ---------------- çalışma programı ----------------
+const GUNLER = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
+function programUser(ad, komut) { addMessage('user', '📅 ' + ad + ': ' + komut); setBusy(true); setStatus('Programlı görev: ' + ad); }
+async function openProgram() {
+  if (!window.pywebview) return;
+  document.getElementById('pdays').innerHTML = GUNLER.map((g, i) => `<label><input type="checkbox" value="${i}">${g}</label>`).join('');
+  const t = new Date(Date.now() + 864e5); document.getElementById('ptarih').value = t.toISOString().slice(0, 10);
+  await renderProgram();
+  document.getElementById('pmodal').classList.add('show');
+}
+function closeProgram() { document.getElementById('pmodal').classList.remove('show'); }
+function psikChange() {
+  const v = document.getElementById('psik').value;
+  document.getElementById('pdays').style.display = v === 'sec' ? 'flex' : 'none';
+  document.getElementById('ptarih').style.display = v === 'tek' ? 'block' : 'none';
+}
+function pturChange() {
+  const h = document.querySelector('input[name=ptur]:checked').value === 'hatirlatma';
+  document.getElementById('prapor').style.display = h ? 'none' : 'flex';
+  document.getElementById('pkomut').placeholder = h ? 'Ne hatırlatayım? örn: Kargoları teslim etmeyi unutma' : 'Ne yapsın? örn: Dolar/euro kurunu ve bu haftanın Amazon satıcı haberlerini araştır, kısa rapor hazırla';
+}
+async function renderProgram() {
+  const d = await pywebview.api.program_liste();
+  document.getElementById('pnext').textContent = d.siradaki ? '⏭ Sıradaki: ' + d.siradaki : (d.liste.length ? '' : 'Henüz programlı bir iş yok.');
+  document.getElementById('plist').innerHTML = d.liste.map(i => `<div class="prow ${i.aktif ? '' : 'off'}" data-id="${esc(i.id)}">
+      <div class="pt2">${esc(i.ozet)}<small title="${esc(i.komut)}">${esc(i.komut)}</small></div>
+      <button class="run" title="Şimdi bir kez çalıştır">▶</button>
+      <button class="tog">${i.aktif ? 'Durdur' : 'Başlat'}</button>
+      <button class="del2" title="Sil">🗑</button></div>`).join('');
+  document.querySelectorAll('#plist .prow').forEach(r => {
+    const id = r.dataset.id, it = d.liste.find(x => x.id === id);
+    r.querySelector('.tog').onclick = async () => { await pywebview.api.program_ayarla(id, !it.aktif); renderProgram(); };
+    r.querySelector('.del2').onclick = async () => { await pywebview.api.program_sil(id); renderProgram(); };
+    r.querySelector('.run').onclick = async () => { const x = await pywebview.api.program_simdi(id);
+      if (x.hata) { document.getElementById('pmsg').className = 'hint2 err'; document.getElementById('pmsg').textContent = x.hata; } else closeProgram(); };
+  });
+}
+async function programAdd() {
+  const sik = document.getElementById('psik').value;
+  const gunler = sik === 'her' ? 'her gün' : sik === 'hi' ? 'hafta içi' : sik === 'hs' ? 'hafta sonu' :
+    sik === 'sec' ? Array.from(document.querySelectorAll('#pdays input:checked')).map(x => +x.value) : 'her gün';
+  const r = await pywebview.api.program_ekle({
+    ad: document.getElementById('pad').value, komut: document.getElementById('pkomut').value,
+    saat: document.getElementById('psaat').value, gunler, tarih: sik === 'tek' ? document.getElementById('ptarih').value : '',
+    tur: document.querySelector('input[name=ptur]:checked').value, rapor: document.getElementById('pr').checked });
+  const m = document.getElementById('pmsg');
+  if (r.hata) { m.className = 'hint2 err'; m.textContent = r.hata; return; }
+  m.className = 'hint2 ok'; m.textContent = '✓ Eklendi: ' + r.gorev;
+  document.getElementById('pad').value = ''; document.getElementById('pkomut').value = '';
+  renderProgram();
 }
 
 // ---------------- Telegram ----------------
@@ -655,6 +721,31 @@ window.addEventListener('pywebviewready', init);
 if (!location.search.includes('demo')) setTimeout(() => { if (!window.pywebview) welcome(); }, 300);
 input.focus();
 </script>
+<div id="pmodal" class="pm" onclick="if(event.target.id==='pmodal')closeProgram()">
+  <div class="mbox">
+    <h3>📅 Çalışma programı <button onclick="closeProgram()">✕</button></h3>
+    <div class="hint2" id="pnext" style="margin:-6px 0 10px"></div>
+    <div id="plist"></div>
+    <div class="fld" style="margin-top:14px"><label>YENİ EKLE</label>
+      <div class="opts" style="flex-direction:row;gap:6px;margin-bottom:8px">
+        <label class="opt" style="flex:1"><input type="radio" name="ptur" value="gorev" checked onchange="pturChange()"><div><b>📋 Görev</b><small>Robi işi yapar, rapor eder</small></div></label>
+        <label class="opt" style="flex:1"><input type="radio" name="ptur" value="hatirlatma" onchange="pturChange()"><div><b>⏰ Hatırlatma</b><small>Sadece haber verir</small></div></label>
+      </div>
+      <input type="text" id="pad" placeholder="İsim (örn: Sabah Amazon raporu)" style="margin-bottom:6px">
+      <textarea id="pkomut" class="small" placeholder="Ne yapsın? örn: Dolar/euro kurunu, İstanbul hava durumunu ve bu haftanın Amazon satıcı haberlerini araştır, kısa rapor hazırla"></textarea>
+      <div class="grid2" style="margin-top:6px">
+        <input type="time" id="psaat" value="09:00">
+        <select id="psik" onchange="psikChange()"><option value="her">Her gün</option><option value="hi">Hafta içi</option><option value="hs">Hafta sonu</option><option value="sec">Günleri seç</option><option value="tek">Tek sefer (tarih)</option></select>
+      </div>
+      <div class="days" id="pdays" style="display:none;margin-top:6px"></div>
+      <input type="date" id="ptarih" style="display:none;margin-top:6px">
+      <label class="opt" id="prapor" style="margin-top:6px"><input type="checkbox" id="pr" checked><div><b>Word raporu hazırla</b><small>Telegram bağlıysa rapor telefonuna da gelir</small></div></label>
+      <div class="hint2" id="pmsg"></div>
+      <button class="sbtn pri" style="margin-top:8px" onclick="programAdd()">Programa ekle</button>
+      <div class="hint2" style="margin-top:8px">💡 Sohbette de yazabilirsin: "hafta içi her sabah 9'da dolar kurunu ve Amazon haberlerini araştırıp rapor et"</div>
+    </div>
+  </div>
+</div>
 <div id="modal" onclick="if(event.target.id==='modal')closeSettings()">
   <div class="mbox">
     <h3>⚙️ Ayarlar <button onclick="closeSettings()">✕</button></h3>

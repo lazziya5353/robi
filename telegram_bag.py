@@ -25,8 +25,10 @@ API = "https://api.telegram.org/bot{token}/{method}"
 
 YARDIM = ("🤖 **Robi burada.** Bana yazdığın her şeyi bilgisayarında yaparım.\n\n"
           "Örnekler:\n• Şampiyonlar Ligi puan durumunu araştır, Word'e yaz\n• Masaüstümde ne var?\n"
-          "• İndirilenler'deki büyük dosyaları bul, rapor et\n\n"
+          "• İndirilenler'deki büyük dosyaları bul, rapor et\n"
+          "• Hafta içi her sabah 9'da dolar kurunu ve Amazon haberlerini araştırıp rapor et\n\n"
           "Komutlar:\n/durum – şu an ne yapıyorum\n/durdur – işi durdur\n/onaylar – onay bekleyen işler\n"
+          "/program – çalışma programı\n"
           "/ekran – ekranın görüntüsü\n/yardim – bu mesaj")
 
 
@@ -360,6 +362,14 @@ class Telegram:
                 self.send_pending(items)
             else:
                 self.send("✅ Onay bekleyen iş yok.")
+        elif low == "/program":
+            d = self.api.program_liste()
+            if d["liste"]:
+                self.send("📅 **Çalışma programı**\n" + "\n".join("• " + i["ozet"] for i in d["liste"]) +
+                          (f"\n\nSıradaki: {d['siradaki']}" if d["siradaki"] else "") +
+                          "\n\nEklemek için bana yaz, örn: \"her sabah 9'da dolar kurunu ve Amazon haberlerini araştırıp rapor et\"")
+            else:
+                self.send("📅 Çalışma programı boş.\nÖrnek: \"hafta içi her sabah 9'da Amazon haberlerini araştırıp rapor et\"")
         elif low == "/ekran":
             png = self.api.ekran_goruntusu()
             if png:

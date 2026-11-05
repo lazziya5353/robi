@@ -592,19 +592,19 @@ def _search_bing(q):
     return out
 
 
-def _search_ddgs(q):
+def _search_ddgs(q, timelimit=None):
     """ddgs kütüphanesi: birden çok arama motorunu dener, engellere karşı güncel tutuluyor."""
     from ddgs import DDGS
-    res = DDGS(timeout=10).text(q, region="tr-tr", safesearch="moderate", max_results=8)
+    res = DDGS(timeout=10).text(q, region="tr-tr", safesearch="moderate", max_results=8, timelimit=timelimit)
     return [{"başlık": r.get("title", ""), "adres": r.get("href", ""), "özet": r.get("body", "")}
             for r in res if r.get("href", "").startswith("http")]
 
 
-def _search(q):
+def _search(q, timelimit=None):
     errors = []
     for fn in (_search_ddgs, _search_ddg, _search_bing):
         try:
-            res = [r for r in fn(q) if "bing.com/ck/a" not in r["adres"]]
+            res = [r for r in (fn(q, timelimit) if fn is _search_ddgs else fn(q)) if "bing.com/ck/a" not in r["adres"]]
             if res:
                 return res, errors
         except Exception as e:
@@ -742,27 +742,41 @@ def sayfa_oku(adres: str, odak: str = "", baslangic: int = 0):
     return res
 
 
-def arastir(soru: str, arama: str = ""):
-    """Arar, en iyi sonuçları AYNI ANDA okur, her sayfanın soruyla ilgili kısmını döner."""
+def arastir(soru: str, arama: str = "", aramalar: list = None, zaman: str = ""):
+    """Bir ya da birden çok aramayı AYNI ANDA yapar, en iyi sayfaları paralel okur, ilgili kısımları döner."""
     from concurrent.futures import ThreadPoolExecutor
-    results, errors = _search(arama or soru)
-    if not results:
-        return {"hata": "Arama yapılamadı.", "detay": errors}
-    cands = results[:6]
-    with ThreadPoolExecutor(max_workers=6) as ex:
+    queries = [q for q in (aramalar or []) if q] or [arama or soru]
+    queries = queries[:5]
+    tl = {"gun": "d", "gün": "d", "hafta": "w", "ay": "m", "yil": "y", "yıl": "y"}.get(str(zaman).lower())
+    with ThreadPoolExecutor(max_workers=len(queries)) as ex:
+        found = list(ex.map(lambda q: _search(q, tl), queries))
+    seen, cands, errors = set(), [], []
+    for results, errs in found:  # her aramadan sırayla birer sonuç al (çeşitlilik için)
+        errors += errs
+    for i in range(8):
+        for results, _ in found:
+            if i < len(results) and results[i]["adres"] not in seen:
+                seen.add(results[i]["adres"])
+                cands.append(results[i])
+    if not cands:
+        return {"hata": "Arama yapılamadı.", "detay": errors[:3]}
+    cands = cands[: 4 + 2 * len(queries)]
+    want = min(3 + len(queries), 6)
+    with ThreadPoolExecutor(max_workers=8) as ex:
         pages = list(ex.map(lambda r: _fetch_text(r["adres"], timeout=10), cands))
+    focus = soru + " " + " ".join(queries)
+    per = 1800 if want <= 3 else 1300  # çok kaynakta her birinden daha kısa parça (hafıza dolmasın)
     sources = []
     for r, (page, err) in zip(cands, pages):
-        if not page:
-            continue
-        sources.append({"site": _domain(page["adres"]), "başlık": page["başlık"][:90],
-                        "içerik": _best_part(page["metin"], soru + " " + (arama or ""), 1800)})
-        if len(sources) >= 3:
+        if page:
+            sources.append({"site": _domain(page["adres"]), "başlık": page["başlık"][:90],
+                            "içerik": _best_part(page["metin"], focus, per)})
+        if len(sources) >= want:
             break
     if not sources:
         return {"hata": "Sonuç sayfalarının hiçbiri okunamadı.",
-                "arama_özetleri": [{"site": _domain(r["adres"]), "özet": r["özet"]} for r in cands[:5]]}
-    return {"soru": soru, "kaynaklar": sources,
+                "arama_özetleri": [{"site": _domain(r["adres"]), "özet": r["özet"]} for r in cands[:6]]}
+    return {"soru": soru, "aramalar": queries, "kaynaklar": sources,
             "not": "Bu içeriklerden cevabı KENDİN yaz (gerekirse tablo). Link/adres YAZMA. "
                    "En sona sadece 'Kaynak: site adları' ekle. Bilgi yoksa dürüstçe söyle."}
 
@@ -968,7 +982,13 @@ TOOLS = [
     _t("ses_medya", "Ses ve medya kontrolü. islem: 'ac'/'kis' (deger=yüzde kadar), 'yuzde' (deger=hedef ses), 'sessiz', 'oynat' (durdur/devam), 'sonraki', 'onceki', 'kilitle' (bilgisayarı kilitler).", {"islem": {"type": "string", "enum": ["ac", "kis", "yuzde", "sessiz", "oynat", "sonraki", "onceki", "kilitle"]}, "deger": {"type": "integer"}}, ["islem"]),
     _t("zamanli_kapat", "Bilgisayarı belirtilen dakika sonra kapatır (onay otomatik istenir). iptal=true ise ayarlı kapatmayı iptal eder.", {"dakika": {"type": "integer"}, "iptal": {"type": "boolean"}}),
     _t("not_kaydet", "Yazıyı yeni bir .txt dosyasına kaydeder ve Not Defteri'nde açar. Var olan dosyanın üstüne yazmaz. 'icerik' tam ve düzenli metin olmalı.", {"baslik": {"type": "string", "description": "Dosya adı, örn 'Süper Lig puan durumu'"}, "icerik": {"type": "string"}, "klasor": _KLASOR, "ac": {"type": "boolean"}}, ["baslik", "icerik"]),
-    _t("arastir", "GÜNCEL BİLGİ İÇİN İLK TERCİH. İnternette arar, en iyi 3 sayfayı okur ve soruyla ilgili kısımları getirir. Puan durumu, fikstür, maç sonucu, haber, fiyat, hava, kur vb.", {"soru": {"type": "string", "description": "Kullanıcının sorusu"}, "arama": {"type": "string", "description": "Arama motoruna yazılacak kısa sorgu, örn 'şampiyonlar ligi puan durumu 2026-27'"}}, ["soru"]),
+    _t("arastir", "Genel araştırma: internette arar, en iyi sayfaları AYNI ANDA okur, soruyla ilgili kısımları getirir. Birden fazla konu/açı varsa 'aramalar' listesine 2-5 farklı sorgu yaz (hepsi paralel yapılır). Güncel konular için 'zaman' ver.", {"soru": {"type": "string", "description": "Kullanıcının sorusu"}, "arama": {"type": "string", "description": "Tek arama sorgusu"}, "aramalar": {"type": "array", "items": {"type": "string"}, "description": "Birden çok sorgu, örn ['amazon satıcı ücret değişikliği kasım 2026', 'amazon türkiye satıcı kampanya']"}, "zaman": {"type": "string", "enum": ["gun", "hafta", "ay", "yil"], "description": "Sadece bu süre içindeki sonuçlar"}}, ["soru"]),
+    _t("haber_ara", "Son haberleri TARİHLERİYLE getirir (haber sitelerinden). 'Bu haftanın haberleri', 'son gelişmeler', 'gündem' gibi isteklerde arastir yerine/yanında bunu kullan.", {"konu": {"type": "string"}, "zaman": {"type": "string", "enum": ["gun", "hafta", "ay"]}, "adet": {"type": "integer"}}, ["konu"]),
+    _t("doviz_kuru", "Merkez Bankası (TCMB) döviz kurlarını getirir. Dolar/euro/sterlin vb. sorulunca BUNU kullan, arama yapma.", {"birimler": {"type": "array", "items": {"type": "string"}, "description": "örn ['USD','EUR','GBP']"}}),
+    _t("hava_durumu", "Bir şehrin anlık hava durumu ve birkaç günlük tahmini (Open-Meteo). Hava sorulunca BUNU kullan, arama yapma.", {"sehir": {"type": "string"}, "gun": {"type": "integer", "description": "1-7 gün"}}, ["sehir"]),
+    _t("program_ekle", "Çalışma programına zamanlı görev ya da hatırlatma ekler. saat 'SS:DD'. gunler: 'her gün', 'hafta içi', 'hafta sonu' ya da gün adları listesi. Tek seferlik için tarih 'YYYY-AA-GG'.", {"ad": {"type": "string", "description": "Kısa isim, örn 'Sabah Amazon raporu'"}, "komut": {"type": "string", "description": "O saatte yapılacak işin tam talimatı ya da hatırlatma metni"}, "saat": {"type": "string"}, "gunler": {"type": "string"}, "tur": {"type": "string", "enum": ["gorev", "hatirlatma"]}, "tarih": {"type": "string"}, "rapor": {"type": "boolean", "description": "Görev bitince Word raporu hazırlansın mı (varsayılan evet)"}}, ["komut", "saat"]),
+    _t("program_listele", "Çalışma programındaki görevleri ve hatırlatmaları listeler.", {}),
+    _t("program_sil", "Çalışma programından bir görevi siler (adıyla).", {"ad": {"type": "string"}}, ["ad"]),
     _t("hafizaya_ekle", "Kullanıcı 'bunu hatırla / aklında tut / unutma' derse ya da kalıcı bir tercihini söylerse kısa bir cümleyle hafızaya ekler.", {"bilgi": {"type": "string"}}, ["bilgi"]),
     _t("word_kaydet", "Düzenli bir Word (.docx) belgesi oluşturur ve açar. 'icerik' markdown gibi yazılır: '# Başlık', '## Alt başlık', '- madde', '| tablo | satırı |', '**kalın**'. Var olan dosyanın üstüne yazmaz.", {"baslik": {"type": "string"}, "icerik": {"type": "string"}, "klasor": _KLASOR, "ac": {"type": "boolean"}}, ["baslik", "icerik"]),
     _t("web_ara", "İnternette arama yapar; başlık, adres ve kısa özet döner. Güncel bilgi (puan durumu, fikstür, haber, fiyat, hava) için ilk adım.", {"arama": {"type": "string"}, "adet": {"type": "integer"}}, ["arama"]),
@@ -988,8 +1008,17 @@ _FUNCS = {
     "buyuk_dosyalar": buyuk_dosyalar, "uygulamalari_listele": uygulamalari_listele,
     "uygulama_ac": uygulama_ac, "web_ac": web_ac, "gecici_dosya_boyutu": gecici_dosya_boyutu,
     "youtube_ara": youtube_ara, "youtube_ac": youtube_ac,
-    "web_ara": web_ara, "sayfa_oku": sayfa_oku, "arastir": arastir, "not_kaydet": not_kaydet, "word_kaydet": word_kaydet,
+    "web_ara": web_ara, "sayfa_oku": sayfa_oku, "arastir": arastir,
+    "haber_ara": lambda **k: __import__("bilgi").haber_ara(**k),
+    "doviz_kuru": lambda **k: __import__("bilgi").doviz_kuru(**k),
+    "hava_durumu": lambda **k: __import__("bilgi").hava_durumu(**k), "not_kaydet": not_kaydet, "word_kaydet": word_kaydet,
     "hafizaya_ekle": lambda bilgi: {"tamam": __import__("hafiza").ekle(bilgi)},
+    "program_ekle": lambda **k: __import__("program").ekle(k.get("ad", ""), k.get("komut", ""), k.get("saat", ""),
+                                                           k.get("gunler"), k.get("tur", "gorev"), k.get("tarih", ""),
+                                                           k.get("rapor", True)),
+    "program_listele": lambda: {"program": [__import__("program").ozet(i) for i in __import__("program").liste()]
+                                or "Çalışma programı boş."},
+    "program_sil": lambda ad: __import__("program").sil(ad),
     "ses_medya": ses_medya, "zamanli_kapat": zamanli_kapat,
     "virus_durumu": virus_durumu, "virus_tara": virus_tara,
     "calisan_programlar": calisan_programlar, "dosya_sil": dosya_sil, "dosya_tasi": dosya_tasi,
@@ -1005,7 +1034,8 @@ _STATUS = {
     "web_ac": "Siteyi açıyorum", "gecici_dosya_boyutu": "Geçici dosyaları ölçüyorum",
     "calisan_programlar": "Çalışan programlara bakıyorum",
     "youtube_ara": "YouTube'da arıyorum", "youtube_ac": "YouTube'u açıyorum",
-    "web_ara": "İnternette arıyorum", "arastir": "Araştırıyorum, sayfaları okuyorum", "sayfa_oku": "Sayfayı okuyorum", "not_kaydet": "Not defterine yazıyorum", "word_kaydet": "Word belgesi hazırlıyorum", "hafizaya_ekle": "Hafızama yazıyorum", "virus_durumu": "Windows Defender'a bakıyorum", "virus_tara": "Virüs taramasını başlatıyorum",
+    "web_ara": "İnternette arıyorum", "arastir": "Araştırıyorum, sayfaları okuyorum", "haber_ara": "Haberlere bakıyorum",
+    "doviz_kuru": "Merkez Bankası kurlarına bakıyorum", "hava_durumu": "Hava durumuna bakıyorum", "sayfa_oku": "Sayfayı okuyorum", "not_kaydet": "Not defterine yazıyorum", "word_kaydet": "Word belgesi hazırlıyorum", "hafizaya_ekle": "Hafızama yazıyorum", "program_ekle": "Programa ekliyorum", "program_listele": "Programa bakıyorum", "virus_durumu": "Windows Defender'a bakıyorum", "virus_tara": "Virüs taramasını başlatıyorum",
 }
 
 

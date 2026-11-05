@@ -67,17 +67,78 @@ class Api:
     def ayarlar(self):
         return {"isim": self._cfg["isim"], "model": self._cfg["model"], "kisayol": self._cfg["kisayol"]}
 
-    def gonder(self, text, kaynak="ui"):
+    def gonder(self, text, kaynak="ui", gorunen=None):
         if self._busy:
             return False
         self._busy = True
         self._source = kaynak
-        self._last_task = text
+        self._last_task = gorunen or text
         if not self._chat_id:
             self._chat_id = time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:4]
-        self._display.append({"r": "user", "t": text})
+        self._display.append({"r": "user", "t": gorunen or text})
         threading.Thread(target=self._run, args=(text,), daemon=True).start()
         return True
+
+    # --- çalışma programı ---
+    def program_liste(self):
+        import program
+        nxt = program.siradaki()
+        return {"liste": [{**i, "ozet": program.ozet(i)} for i in program.liste()],
+                "siradaki": f"{nxt[1]['ad']} · {nxt[0]:%d.%m %H:%M}" if nxt else ""}
+
+    def program_ekle(self, d):
+        import program
+        return program.ekle(d.get("ad", ""), d.get("komut", ""), d.get("saat", ""), d.get("gunler"),
+                            d.get("tur", "gorev"), d.get("tarih", ""), d.get("rapor", True))
+
+    def program_sil(self, item_id):
+        import program
+        return program.sil(item_id)
+
+    def program_ayarla(self, item_id, aktif):
+        import program
+        program.ayarla(item_id, aktif=bool(aktif))
+        return True
+
+    def program_simdi(self, item_id):
+        import program
+        it = program.bul(item_id)
+        if not it:
+            return {"hata": "Program bulunamadı."}
+        if self._busy:
+            return {"hata": "Robi şu an meşgul, iş bitince tekrar dene."}
+        self._program_calistir(it)
+        return {"tamam": True}
+
+    def _program_calistir(self, it):
+        import program
+        program.calisti(it["id"])
+        if it["tur"] == "hatirlatma":
+            self.bildir(f"⏰ **Hatırlatma:** {it['komut']}")
+            self.show()
+            return
+        self._program_name = it["ad"]
+        text = (f"[ÇALIŞMA PROGRAMI: '{it['ad']}' görevi zamanı geldiği için otomatik başladı. Kullanıcı başında değil.]\n"
+                f"{it['komut']}")
+        if it.get("rapor", True):
+            text += "\n\nSonunda bulduklarını Word raporu olarak kaydet (word_kaydet, klasor='raporlar', başlığa görev adı ve tarih)."
+        self._js("programUser", it["ad"], it["komut"])
+        self.gonder(text, "program", gorunen=f"📅 {it['ad']}: {it['komut']}")
+
+    def _zamanlayici(self):
+        """Her 30 sn'de bir programı kontrol eder; Robi meşgulse görevi bir sonraki kontrole bırakır."""
+        import program
+        while True:
+            try:
+                for it in program.zamani_gelenler():
+                    if it["tur"] == "hatirlatma":
+                        self._program_calistir(it)
+                    elif not self._busy:
+                        self._program_calistir(it)
+                        break  # aynı anda tek görev
+            except Exception as e:
+                print("Program kontrolü hatası:", e)
+            time.sleep(30)
 
     # --- Telegram ---
     def telegram_mesaj(self, text):
@@ -445,8 +506,12 @@ class Api:
         away_done = getattr(self._agent, "away", False)
         if not (from_tg or away_done):
             return
+        if self._source == "program":
+            head = f"📅 **{getattr(self, '_program_name', 'Program')}** tamamlandı\n\n"
+        else:
+            head = "" if from_tg else "📋 **Görev bitti**\n\n"
         try:
-            self._tg.send(reply if from_tg else "📋 **Görev bitti**\n\n" + reply)
+            self._tg.send(head + reply)
             for f in getattr(self._agent, "created_files", []):
                 self._tg.send_file(f, "📄 " + Path(f).name)
             new = [p for p in self._pending_list() if p["id"] not in self._pending_before]
@@ -518,11 +583,32 @@ def main():
     state = {"quitting": False}
     threading.Thread(target=kimlik.create_shortcuts, args=(cfg["isim"],), daemon=True).start()
 
+    pw = cfg.get("pencere") or {}
     window = webview.create_window(
         cfg["isim"], str(BASE / "ui" / "index.html"), js_api=api,
-        width=760, height=680, min_size=(360, 480), background_color="#0f1117",
+        width=int(pw.get("w", 760)), height=int(pw.get("h", 680)), maximized=bool(pw.get("max", False)),
+        min_size=(360, 480), background_color="#0f1117",
     )
     api._window = window
+
+    # pencere boyutunu hatırla (bir sonraki açılışta aynı boyutta açılsın)
+    save_timer = {"t": None}
+
+    def remember(**kw):
+        cfg["pencere"] = {**(cfg.get("pencere") or {}), **kw}
+        if save_timer["t"]:
+            save_timer["t"].cancel()
+        save_timer["t"] = threading.Timer(1.0, lambda: CONFIG_PATH.write_text(
+            json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8"))
+        save_timer["t"].start()
+
+    def on_resized(width, height):
+        if not (cfg.get("pencere") or {}).get("max") and width > 300 and height > 300:
+            remember(w=int(width), h=int(height))
+
+    window.events.resized += on_resized
+    window.events.maximized += lambda: remember(max=True)
+    window.events.restored += lambda: remember(max=False)
 
     def on_closing():
         if state["quitting"]:
@@ -554,6 +640,7 @@ def main():
 
     threading.Thread(target=lock_listener, daemon=True).start()
     api._tg.start()  # Telegram bağlıysa telefonu dinlemeye başla
+    threading.Thread(target=api._zamanlayici, daemon=True).start()  # çalışma programı
 
     # --- sistem tepsisi ---
     def start_tray():

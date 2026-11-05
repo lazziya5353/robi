@@ -36,7 +36,9 @@ Windows'ta arka planda çalışan, yazdıklarını yapan yardımcı robot. Önem
 
 | Direkt yapar 🟢 | Önce sorar 🟡 |
 |---|---|
-| İnternette araştırma, puan durumu, haber, fiyat | Dosya silme (Geri Dönüşüm Kutusu'na) |
+| İnternette araştırma (birden çok konuyu aynı anda), haber, puan durumu | Dosya silme (Geri Dönüşüm Kutusu'na) |
+| Döviz kuru (TCMB), hava durumu (Open-Meteo) | |
+| Windows Defender virüs taraması ve durum | |
 | Word (.docx) ve Not Defteri (.txt) belgesi oluşturma | Dosya taşıma |
 | YouTube'da arayıp en uygun videoyu uygulamada açma | Uygulama kaldırma |
 | Program / site açma, görev çubuğundaki uygulamalar | Geçici dosyaları temizleme |
@@ -55,6 +57,19 @@ Windows ve Program Files gibi sistem klasörlerine dokunmaz. Web sayfalarındaki
 - `Chrome'u aç` · `Spotify aç` · `Discord'u aç` (görev çubuğu ve Başlat menüsündeki her uygulama)
 - `bilgisayarı kilitle`
 - `30 dakika sonra kapat` · `1 saat sonra kapat` (onay ister) · `kapatmayı iptal et`
+
+## 📅 Çalışma programı
+
+Robi'ye belirli saatlerde kendi kendine iş yaptır. Sağ üstteki **📅** düğmesinden ya da sohbetten ekle:
+> "Hafta içi her sabah 9'da dolar kurunu, İstanbul havasını ve bu haftanın Amazon satıcı haberlerini araştırıp rapor et"
+> "Yarın 18:30'da kargoları teslim etmeyi hatırlat"
+
+- **📋 Görev:** o saatte Robi işi "ben yokken" modunda yapar, Word raporu hazırlar, Telegram bağlıysa raporu telefona gönderir
+- **⏰ Hatırlatma:** yapay zekâ kullanmadan sadece mesaj gösterir/gönderir
+- Her gün, hafta içi, hafta sonu, seçili günler ya da tek sefer (tarihli)
+- Bilgisayar o saatte kapalıysa açıldığında o günün kaçırılan işi bir kez çalışır
+- Telegram'da `/program` ile listeyi görürsün
+- Program sadece sen açıkça istediğinde değişir (web sayfaları program ekleyemez)
 
 ## 🚶 Ben yokken modu
 

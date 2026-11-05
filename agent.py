@@ -24,7 +24,10 @@ Kurallar:
 - Şifre, kart bilgisi, sistem/güvenlik ayarı, para işlemi ASLA yapma; bunlar için aracın yok.
 - DÜRÜSTLÜK EN ÖNEMLİ KURAL: Sadece araç sonucunda yazanı söyle. Araç "TARAYICIDA açıldı" diyorsa "uygulamada açtım" deme. Araç çağırmadan "açtım/yaptım" asla deme. Hata geldiyse hatayı aynen söyle.
 - Yapamadığın bir şey istenirse dürüstçe "bunu henüz yapamıyorum" de.
-- Güncel bilgi istenince (puan durumu, fikstür, maç sonucu, haber, fiyat, hava, kur vb.):
+- Döviz kuru sorulursa doviz_kuru, hava sorulursa hava_durumu kullan (arama yapma, bunlar resmi kaynaktan gelir).
+- "Bu haftanın haberleri / son gelişmeler / gündem" istenirse haber_ara kullan (zaman ver); gerekirse arastir ile destekle.
+- Birden çok bağımsız bilgi gerekiyorsa araçları AYNI MESAJDA birlikte çağır (hepsi aynı anda çalışır). Tek konunun farklı açıları için arastir'a 'aramalar' listesi ver.
+- Güncel bilgi istenince (puan durumu, fikstür, maç sonucu, fiyat vb.):
   1) ÖNCE arastir aracını çağır (ücretsiz; soru=kullanıcının sorusu, arama=kısa ve net arama sorgusu, gerekirse sezon/yıl ekle).
      arastir boş, hatalı ya da alakasız sonuç getirirse ve web_search aracın varsa web_search'ü kullan (ücretli, gerekmedikçe kullanma).
   2) Gelen içeriklerden cevabı KENDİN yaz: doğrudan bilgiyi ver, puan durumu/fikstür gibi şeyleri markdown tablo yap (| Sıra | Takım | O | P |).
@@ -36,6 +39,10 @@ Kurallar:
 - Tablolarda farklı kaynaklardan gelen sayıları KARIŞTIRMA: tek bir kaynağın tablosunu kullan; maç sayıları tutarsızsa (bir takım diğerlerinden az maç oynamış görünüyorsa) bunu belirt.
 - "Araştır ve not defterine/dosyaya kaydet" denirse: ÖNCE yukarıdaki gibi araştır ve bilgiyi topla, SONRA not_kaydet ile topladığın bilginin tamamını (başlık, tarih, bilgi, kaynak) kaydet. Boş not ya da sadece Not Defteri'ni açmak YASAK; uygulama_ac ile notepad açma.
 - YouTube isteği gelince: önce youtube_ara ile ara, sonuçlardan kullanıcının istediğine en uygununu seç (başlık, süre, izlenme, kanal), 1 cümleyle neden seçtiğini söyle ve youtube_ac(video_id=...) ile aç. Kullanıcı sadece "YouTube'u aç" derse youtube_ac'ı parametresiz çağır.
+- ÇALIŞMA PROGRAMI: "her sabah 9'da ...", "hafta içi 18:00'de ...", "yarın 10'da hatırlat ..." gibi zamanlı istekleri program_ekle ile kaydet.
+  İş yapılacaksa tur="gorev" (komut, o saatte sana verilecek tam talimat olsun: ne araştırılacak, nasıl rapor edilecek),
+  sadece haber verilecekse tur="hatirlatma". Tek seferlik işte tarih ver (bugün: {tarih}). Kaydettikten sonra özetini söyle.
+  Program görevleri bilgisayar açıkken çalışır; Telegram bağlıysa rapor telefona gider.
 - Cevaplarında uzun listeleri madde madde ve kısa tut.
 - Virüs / zararlı yazılım / "bilgisayarı tara" istenirse: virus_tara aracını kullan ("komple/tam" denirse tur="tam", yoksa "hizli"),
   virus_durumu ile korumanın açık olup olmadığına bak. Kullanıcıya "hangi antivirüs var" diye SORMA; Windows Defender her Windows'ta var.
@@ -65,9 +72,13 @@ class Agent:
         self._prev_brain = ""
 
     # "ben çıkıyorum", "dönünce bakarım", "rapor et" gibi ifadeler → ben yokken modu
-    _AWAY = re.compile(r"(?:ben )?(?:dışarı |evden )?çıkıyorum|evde (?:yokum|değilim)|dönünce|gelince bak|"
-                       r"ben yokken|rapor(?:la| et| hazırla| ver)|haber ver|bitince bana", re.I)
+    # (sadece "yokum" anlamına gelen açık ifadeler; "rapor" kelimesi tek başına görev modunu açmaz)
+    _AWAY = re.compile(r"\b(?:dışarı çıkıyorum|evden çıkıyorum|çıkıyorum ben|ben çıkıyorum|evde (?:yokum|değilim)|"
+                       r"(?:dönünce|döndüğümde|gelince) bak\w*|ben yokken|bitince (?:bana )?haber ver\w*)\b", re.I)
 
+    _PROGRAM = re.compile(r"\bher (?:gün|gun|sabah|akşam|aksam|hafta|ay|pazartesi|salı|çarşamba|perşembe|cuma|cumartesi|pazar)|"
+                          r"hafta içi|hafta sonu|program|zamanla|hatırlat|hatirlat|saat \d|\d{1,2}[:.]\d{2}|"
+                          r"\b(?:yarın|yarin|bu akşam|bu aksam|bu gece)\b|sil.*program|iptal.*(?:görev|program)", re.I)
     _HATIRLA = re.compile(r"hatırla|hatirla|unutma|aklında tut|aklinda tut|hafıza|hafiza|not al|kaydet bunu", re.I)
 
     # ---------------- hangi beyin? ----------------
@@ -195,7 +206,8 @@ class Agent:
         for m in self.history:  # önceki turların ham Claude bloklarına artık gerek yok (hafıza şişmesin)
             m.pop("_claude_blocks", None)
         self.history[0] = {"role": "system", "content": self._system()}  # hafıza değişmiş olabilir
-        self.away = bool(getattr(self.ui, "away", False) or self._AWAY.search(text))
+        self.away = bool(getattr(self.ui, "away", False) or getattr(self.ui, "_source", "") == "program"
+                         or self._AWAY.search(text))
         if self.away:
             self.history[-1]["content"] = (
                 "[GÖREV MODU: Kullanıcı şu an bilgisayar başında değil. Hafızadaki 'Ben yokken' kurallarına uy: "
@@ -240,20 +252,37 @@ class Agent:
                 return reply
             self.ui.stream_end()  # araçtan önce yazdığı ara cümle ayrı balonda kalsın
 
+            prepared = []
             for call in calls:
-                if self.stop:
-                    raise Durduruldu()
                 call.setdefault("_id", "t" + uuid.uuid4().hex[:12])
                 fn = call.get("function", {})
-                name = fn.get("name", "")
                 args = fn.get("arguments") or {}
                 if isinstance(args, str):
                     try:
                         args = json.loads(args)
                     except json.JSONDecodeError:
                         args = {}
+                prepared.append((call, fn.get("name", ""), args))
 
-                if name == "hafizaya_ekle" and not self._HATIRLA.search(self._last_user):
+            # onay gerektirmeyen araçları aynı anda çalıştır (çoklu araştırma çok hızlanır)
+            safe = [p for p in prepared if p[1] not in ONAYLI and p[1] not in ("hafizaya_ekle", "program_ekle", "program_sil")]
+            pre = {}
+            if len(safe) > 1:
+                from concurrent.futures import ThreadPoolExecutor
+                self.ui.status(f"{len(safe)} işi aynı anda yapıyorum")
+                with ThreadPoolExecutor(max_workers=min(6, len(safe))) as ex:
+                    futs = {p[0]["_id"]: ex.submit(run_tool, p[1], p[2]) for p in safe}
+                    pre = {k: f.result() for k, f in futs.items()}
+
+            for call, name, args in prepared:
+                if self.stop:
+                    raise Durduruldu()
+                if call["_id"] in pre:
+                    result = pre[call["_id"]]
+                elif name in ("program_ekle", "program_sil") and (getattr(self.ui, "_source", "") == "program"
+                                                              or not self._PROGRAM.search(self._last_user)):
+                    result = {"hata": "Çalışma programını sadece kullanıcı açıkça isterse değiştiririm (zaman/program ifadesiyle). Değiştirmedim."}
+                elif name == "hafizaya_ekle" and not self._HATIRLA.search(self._last_user):
                     result = {"hata": "Hafızaya sadece kullanıcı açıkça 'hatırla / unutma / aklında tut' derse yazılır. Yazmadım."}
                 elif name in ONAYLI and getattr(self, "away", False):
                     self.ui.defer(name, args, describe_action(name, args))
