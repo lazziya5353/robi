@@ -128,7 +128,19 @@ class Api:
     def _zamanlayici(self):
         """Her 30 sn'de bir programı kontrol eder; Robi meşgulse görevi bir sonraki kontrole bırakır."""
         import program
+        last_upd = time.time()
         while True:
+            if time.time() - last_upd > 3 * 3600:  # 3 saatte bir güncelleme var mı bak
+                last_upd = time.time()
+                try:
+                    res = self.guncelleme_kontrol()
+                    if res.get("durum") == "var":
+                        self._js("showUpdate", res)
+                        if self._tg.paired() and getattr(self, "_upd_told", "") != res.get("sha"):
+                            self._upd_told = res.get("sha")
+                            self._tg.send(f"🎉 Robi'nin yeni sürümü var: {res.get('mesaj', '')}\nGüncellemek için /guncelle yaz.")
+                except Exception:
+                    pass
             try:
                 for it in program.zamani_gelenler():
                     if it["tur"] == "hatirlatma":

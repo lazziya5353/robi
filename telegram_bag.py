@@ -28,7 +28,7 @@ YARDIM = ("🤖 **Robi burada.** Bana yazdığın her şeyi bilgisayarında yapa
           "• İndirilenler'deki büyük dosyaları bul, rapor et\n"
           "• Hafta içi her sabah 9'da dolar kurunu ve Amazon haberlerini araştırıp rapor et\n\n"
           "Komutlar:\n/durum – şu an ne yapıyorum\n/durdur – işi durdur\n/onaylar – onay bekleyen işler\n"
-          "/program – çalışma programı\n"
+          "/program – çalışma programı\n/guncelle – Robi'yi güncelle\n"
           "/ekran – ekranın görüntüsü\n/yardim – bu mesaj")
 
 
@@ -362,6 +362,17 @@ class Telegram:
                 self.send_pending(items)
             else:
                 self.send("✅ Onay bekleyen iş yok.")
+        elif low == "/guncelle":
+            res = self.api.guncelleme_kontrol()
+            if res.get("durum") != "var":
+                self.send("✅ Robi zaten güncel." if res.get("durum") == "guncel" else f"⚠️ {res.get('mesaj', 'Kontrol edilemedi')}")
+            elif self.api._busy:
+                self.send("⏳ Şu an bir iş yapıyorum; bitince tekrar /guncelle yaz.")
+            else:
+                self.send(f"⬇️ Güncelliyorum: {res.get('mesaj', '')}\nRobi yeniden açılacak, 1 dakika sonra /durum yazarak kontrol edebilirsin.")
+                r = self.api.guncelle()
+                if r.get("durum") != "tamam":
+                    self.send(f"⚠️ Güncellenemedi: {r.get('mesaj', '')}")
         elif low == "/program":
             d = self.api.program_liste()
             if d["liste"]:
